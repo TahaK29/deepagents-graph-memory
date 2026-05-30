@@ -1,0 +1,75 @@
+[project]
+name = "deepagents-graph-memory"
+version = "0.1.0"
+description = "Graph-backed virtual memory backend for LangChain Deep Agents."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<4.0"
+keywords = ["deepagents", "langchain", "langgraph", "memory", "graph", "kuzu"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "deepagents>=0.5.2,<0.7",
+    "langchain-core>=1.4.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+kuzu = [
+    "kuzu>=0.11.3",
+    "langchain-community>=0.4.2,<0.5.0",
+    "langchain-kuzu>=0.4.2",
+]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
+    "ruff>=0.12.2,<0.16.0",
+]
+
+[project.urls]
+Repository = "https://github.com/TahaK29/deepagents-graph-memory"
+Documentation = "https://github.com/TahaK29/deepagents-graph-memory#readme"
+Issues = "https://github.com/TahaK29/deepagents-graph-memory/issues"
+
+[build-system]
+requires = ["setuptools>=73.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+"deepagents_graph_memory" = ["py.typed"]
+
+[tool.ruff]
+line-length = 150
+target-version = "py311"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["ANN", "B", "D", "E", "F", "I", "UP"]
+ignore = [
+    "ANN401",
+    "D107",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["deepagents_graph_memory"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "D", "S101"]
+"src/deepagents_graph_memory/examples/**" = ["D"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
