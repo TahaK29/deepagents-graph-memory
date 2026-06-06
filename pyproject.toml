@@ -1,11 +1,11 @@
 [project]
 name = "deepagents-graph-memory"
 version = "0.1.0"
-description = "Graph-backed virtual memory backend for LangChain Deep Agents."
+description = "Graph-backed context scratchpad for LangChain Deep Agents."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11,<4.0"
-keywords = ["deepagents", "langchain", "langgraph", "memory", "graph", "kuzu"]
+keywords = ["deepagents", "langchain", "langgraph", "context", "graph", "kuzu"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

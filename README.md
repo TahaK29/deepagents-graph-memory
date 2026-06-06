@@ -1,75 +1,69 @@
 # deepagents-graph-memory
 
-`deepagents-graph-memory` is an experimental graph-backed virtual filesystem backend for LangChain Deep Agents.
+`deepagents-graph-memory` is an experimental Virtual Graph System (VGS) for LangChain Deep Agents.
 
-Deep Agents already expose memory through file tools such as `ls`, `read_file`, `write_file`, `edit_file`, `grep`, and `glob`. This package keeps that interface and adds an optional read-only graph memory folder, usually mounted at `/graph/`.
+The goal is to give a long-running agent a structured graph scratchpad for workflow context: situations, rationales, actions, outcomes, files, tool calls, failures, evidence, experiments, dependencies, and decisions.
 
-Use normal text memory for preferences, instructions, summaries, and notes. Use graph memory for entities and relationships: services, teams, incidents, dependencies, projects, tools, and runbooks.
+This is not ordinary user memory. Do not use it for facts like "Taha likes ice cream." Use it for connected work state like "this failing test led to this hypothesis, this edit, this result, and this final decision."
 
-The markdown files under `/graph/` are inspectable views over the graph, not the source of truth. The source of truth is the configured graph database. Agents can use `recall_graph_memory` to retrieve a relevant slice of long-term graph memory without knowing exact node paths first.
+## Intended Mode
+
+VGS should be off by default in a normal Deep Agents install.
+
+When VGS is enabled:
+
+- Kuzu is the supported graph store.
+- Graph memory tools are exposed.
+- Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, and `grep`.
+- Generated `/graph/...` markdown views are read-only projections over the graph.
+- Graph writes go through controlled tools, not raw graph queries.
+
+This package can provide the backend, tools, and harness-profile helper. A native flag like `create_deep_agent(..., vgs=True)` would require an upstream change in the main `deepagents` library.
 
 ## Install
+
+Base install:
 
 ```bash
 pip install deepagents-graph-memory
 ```
 
-For the local Kuzu-backed default:
+Runtime VGS usage needs Kuzu:
 
 ```bash
 pip install "deepagents-graph-memory[kuzu]"
 ```
 
+Kuzu stays behind the `[kuzu]` extra and lazy import path so installing this package does not force every Deep Agents user to install a graph database.
+
 ## Basic Usage
 
 ```python
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
-from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools
+from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, register_vgs_harness_profile
 
-graph_backend = GraphMemoryBackend.local("./graph-memory")
+MODEL = "google_genai:gemini-3.5-flash"
+
+register_vgs_harness_profile(MODEL)
+
+graph_backend = GraphMemoryBackend.local("./graph-context")
 
 agent = create_deep_agent(
-    model="google_genai:gemini-3.5-flash",
+    model=MODEL,
     tools=[*graph_memory_tools(graph_backend)],
     memory=[
-        "/memories/preferences.md",
         "/graph/index.md",
         "/graph/schema.md",
     ],
-    backend=CompositeBackend(
-        default=StateBackend(),
-        routes={
-            "/memories/": StoreBackend(namespace=lambda rt: (rt.server_info.user.identity,)),
-            "/graph/": graph_backend,
-        },
-    ),
+    backend=graph_backend,
 )
 ```
 
-## Virtual Paths
+`register_vgs_harness_profile(MODEL)` is the toggle this package can provide locally. It tells Deep Agents to hide the normal filesystem tools for that model key, so the agent works through graph tools instead of the VFS tool surface.
 
-The backend supports these generated markdown files:
+For a per-run scratchpad, pass a temporary Kuzu directory to `GraphMemoryBackend.local(...)` and delete it when the run ends. For durable project context, reuse the same Kuzu path.
 
-```text
-/graph/schema.md
-/graph/index.md
-/graph/nodes/{label}/{id}.md
-/graph/views/neighborhood/{label}/{id}.md
-/graph/search/{query}.md
-```
-
-When mounted under Deep Agents `CompositeBackend`, the `/graph/` prefix is stripped before the backend receives paths. This backend handles both prefixed and stripped paths.
-
-## Writes
-
-Generated graph views are read-only. `write` and `edit` return:
-
-```text
-Graph memory views are read-only. Use graph memory tools to add or update graph facts.
-```
-
-Graph updates go through controlled tools:
+## Graph Tools
 
 ```python
 graph_memory_tools(graph_backend)
@@ -81,8 +75,54 @@ The tools are:
 - `add_graph_node`
 - `add_graph_edge`
 - `add_graph_documents`
+- `record_graph_trace`
 
-`recall_graph_memory` searches for seed graph facts, expands through the graph while useful, and returns compact markdown with source `/graph/...` paths. It uses retrieval budgets so the graph can grow as long-term memory without dumping the whole graph into the model context.
+`record_graph_trace` is the preferred high-level write tool for long-running agent work. It records the Level 3 context-graph shape:
+
+```text
+Situation -> Rationale -> Action -> Outcome
+```
+
+Example:
+
+```text
+Situation: sheep saw lion
+Rationale: lion is dangerous
+Action: sheep ran away
+Outcome: sheep survived
+```
+
+The graph stores edges like:
+
+```text
+sheep saw lion --LED_TO--> lion is dangerous
+lion is dangerous --JUSTIFIED--> sheep ran away
+sheep ran away --PRODUCED--> sheep survived
+```
+
+`recall_graph_memory` searches for seed graph facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Callers can pass anchors such as file paths, run ids, task ids, or subagent ids to give recall a concrete starting point.
+
+## Virtual Graph Views
+
+The backend supports these generated markdown paths:
+
+```text
+/graph/schema.md
+/graph/index.md
+/graph/nodes/{label}/{id}.md
+/graph/views/neighborhood/{label}/{id}.md
+/graph/search/{query}.md
+```
+
+These files are inspectable views over the graph, not storage. In VGS mode the normal VFS tools are hidden from the agent, but these paths can still be used by Deep Agents memory loading, direct backend calls, tests, and debugging.
+
+## Writes
+
+Generated graph views are read-only. `write` and `edit` return:
+
+```text
+Graph memory views are read-only. Use graph memory tools to add or update graph facts.
+```
 
 Raw unrestricted Cypher is intentionally not exposed as an agent-facing read or write path.
 
@@ -98,19 +138,12 @@ Incident 123 AFFECTED Langfuse
 Incident 123 RESOLVED_BY Restart Ingestion Workers Runbook
 ```
 
-Useful reads:
-
-```text
-/graph/nodes/service/langfuse.md
-/graph/views/neighborhood/service/langfuse.md
-```
-
 Useful recall:
 
 ```text
 recall_graph_memory("what services did incident 123 affect and what do they depend on?")
 ```
 
-## Notes
+## Development Note
 
-This is an external prototype package. It does not modify Deep Agents core and does not replace `/memories/` or other normal text memory. Kuzu is the first local backend; other graph integrations can be added later through the private adapter boundary used by `GraphMemoryBackend`.
+`GraphMemoryBackend.ephemeral()` exists for tests and local development. Public VGS runtime usage should use `GraphMemoryBackend.local(...)` with the `[kuzu]` extra installed.

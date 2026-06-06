@@ -1,25 +1,20 @@
-"""Minimal Deep Agents setup with graph memory mounted at `/graph/`."""
+"""Minimal Deep Agents setup with Kuzu-backed VGS mode."""
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
-from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools
+from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, register_vgs_harness_profile
 
+MODEL = "google_genai:gemini-3.5-flash"
+
+register_vgs_harness_profile(MODEL)
 graph_backend = GraphMemoryBackend.local("./graph-memory")
 
 agent = create_deep_agent(
-    model="google_genai:gemini-3.5-flash",
+    model=MODEL,
     tools=[*graph_memory_tools(graph_backend)],
     memory=[
-        "/memories/preferences.md",
         "/graph/index.md",
         "/graph/schema.md",
     ],
-    backend=CompositeBackend(
-        default=StateBackend(),
-        routes={
-            "/memories/": StoreBackend(namespace=lambda rt: (rt.server_info.user.identity,)),
-            "/graph/": graph_backend,
-        },
-    ),
+    backend=graph_backend,
 )

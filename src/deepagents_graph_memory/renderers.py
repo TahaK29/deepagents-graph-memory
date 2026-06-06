@@ -122,6 +122,7 @@ def _render_properties(properties: Mapping[str, object]) -> list[str]:
             "created_by",
             "created_by_agent",
             "source_agent",
+            "source",
         }
     }
     if not public:
@@ -159,9 +160,20 @@ def _node_link(label: str, node_id: str) -> str:
 def _outgoing_heading(relationship: str) -> str:
     mapping = {
         "DEPENDS_ON": "Depends on",
+        "HAS_ACTION": "Action",
+        "HAS_OUTCOME": "Outcome",
+        "HAS_RATIONALE": "Rationale",
+        "HAS_SITUATION": "Situation",
+        "HAS_TRACE": "Traces",
+        "INVOLVED": "Involved",
+        "JUSTIFIED": "Justified",
+        "LED_TO": "Led to",
         "OWNS": "Owns",
         "AFFECTED": "Affected",
+        "PRODUCED": "Produced",
+        "RECORDED": "Recorded",
         "RESOLVED_BY": "Resolved by",
+        "SUPPORTS": "Supports",
     }
     return mapping.get(relationship, relationship.replace("_", " ").title())
 
@@ -174,7 +186,18 @@ def _incoming_heading(relationship: str, source_label: str) -> str:
     mapping = {
         "AFFECTED": "Affected by",
         "DEPENDS_ON": "Dependency of",
+        "HAS_ACTION": "Action for",
+        "HAS_OUTCOME": "Outcome for",
+        "HAS_RATIONALE": "Rationale for",
+        "HAS_SITUATION": "Situation for",
+        "HAS_TRACE": "Trace of",
+        "INVOLVED": "Involved in",
+        "JUSTIFIED": "Justified by",
+        "LED_TO": "Led from",
+        "PRODUCED": "Produced by",
+        "RECORDED": "Recorded by",
         "RESOLVED_BY": "Resolves",
+        "SUPPORTS": "Supported by",
     }
     return mapping.get(relationship, f"Incoming {relationship.replace('_', ' ').title()}")
 

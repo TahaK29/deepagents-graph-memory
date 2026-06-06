@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -55,6 +55,7 @@ def recall_graph_memory(
     query: str,
     *,
     scope_key: str | None = None,
+    anchors: Sequence[str] | None = None,
     mode: RecallMode = "auto",
     token_budget: int = 2000,
     max_depth: int = 3,
@@ -67,6 +68,7 @@ def recall_graph_memory(
         store: Internal graph integration adapter.
         query: Natural-language recall query.
         scope_key: Optional scope key used by the configured backend.
+        anchors: Optional concrete starting hints such as file paths, run ids, task ids, or subagent ids.
         mode: Recall expansion mode. `auto` expands while relevant, `local` reads one hop, and `deep` expands to `max_depth`.
         token_budget: Approximate output token budget.
         max_depth: Maximum traversal depth.
@@ -77,12 +79,13 @@ def recall_graph_memory(
         Compact markdown with source graph paths.
     """
     query = _validate_recall_query(query)
+    anchors = [_validate_anchor(anchor) for anchor in anchors or []]
     mode = _validate_mode(mode)
     token_budget, max_depth, max_nodes, max_edges = _validate_budgets(token_budget, max_depth, max_nodes, max_edges)
 
     terms = _query_terms(query)
     state = _RecallState(nodes={}, edges={})
-    seeds = _find_seed_nodes(store, query, terms, scope_key=scope_key, limit=min(max_nodes, 20), state=state)
+    seeds = _find_seed_nodes(store, query, terms, anchors=anchors, scope_key=scope_key, limit=min(max_nodes, 20), state=state)
     if not seeds:
         return _render_recall(query, state, token_budget=token_budget)
 
@@ -156,13 +159,14 @@ def _find_seed_nodes(
     query: str,
     terms: set[str],
     *,
+    anchors: Sequence[str],
     scope_key: str | None,
     limit: int,
     state: _RecallState,
 ) -> list[_NodeRef]:
     seeds: list[_NodeRef] = []
     seen: set[_NodeRef] = set()
-    for search_query in _search_queries(query, terms):
+    for search_query in _search_queries(query, terms, anchors):
         result = store.search(search_query, scope_key=scope_key, limit=limit)
         state.search_truncated = state.search_truncated or result.truncated
         for item in result.items:
@@ -181,8 +185,9 @@ def _find_seed_nodes(
     return seeds
 
 
-def _search_queries(query: str, terms: set[str]) -> list[str]:
+def _search_queries(query: str, terms: set[str], anchors: Sequence[str]) -> list[str]:
     queries = [query]
+    queries.extend(anchors)
     queries.extend(sorted(terms, key=lambda item: (-len(item), item)))
     result: list[str] = []
     seen: set[str] = set()
@@ -405,6 +410,20 @@ def _validate_recall_query(query: str) -> str:
         raise GraphMemoryValidationError(msg)
     if "\x00" in normalized or any(ord(char) < 32 for char in normalized):
         msg = "query must not contain NUL bytes or control characters."
+        raise GraphMemoryValidationError(msg)
+    return normalized
+
+
+def _validate_anchor(anchor: str) -> str:
+    if not isinstance(anchor, str):
+        msg = "anchors must be strings."
+        raise GraphMemoryValidationError(msg)
+    normalized = anchor.strip()
+    if not normalized or len(normalized) > _MAX_QUERY_LENGTH:
+        msg = f"anchors must be between 1 and {_MAX_QUERY_LENGTH} characters."
+        raise GraphMemoryValidationError(msg)
+    if "\x00" in normalized or any(ord(char) < 32 for char in normalized):
+        msg = "anchors must not contain NUL bytes or control characters."
         raise GraphMemoryValidationError(msg)
     return normalized
 

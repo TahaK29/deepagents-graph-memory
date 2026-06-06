@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from deepagents.backends.protocol import BackendProtocol, EditResult, FileInfo, GlobResult, GrepMatch, GrepResult, LsResult, ReadResult, WriteResult
 
@@ -22,7 +24,7 @@ from deepagents_graph_memory.paths import (
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
 from deepagents_graph_memory.renderers import render_index, render_neighborhood, render_node, render_schema, render_search
-from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata
+from deepagents_graph_memory.stores import GraphStoreAdapter, InMemoryGraphStore, merge_metadata
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
 NamespaceFactory = Callable[[Any], tuple[str, ...]]
@@ -30,7 +32,7 @@ Namespace = str | Sequence[str] | NamespaceFactory | None
 
 
 class GraphMemoryBackend(BackendProtocol):
-    """Deep Agents backend that projects graph facts into a virtual filesystem."""
+    """Deep Agents backend that projects graph facts into graph context views."""
 
     def __init__(
         self,
@@ -55,6 +57,34 @@ class GraphMemoryBackend(BackendProtocol):
         self.max_nodes = max_nodes
         self.max_edges = max_edges
         self.neighborhood_depth = neighborhood_depth
+
+    @classmethod
+    def ephemeral(
+        cls,
+        *,
+        namespace: Namespace = None,
+        max_nodes: int = 50,
+        max_edges: int = 100,
+        neighborhood_depth: int = 1,
+    ) -> GraphMemoryBackend:
+        """Create an in-memory graph context scratchpad for tests and local development.
+
+        Args:
+            namespace: Optional Deep Agents-style namespace factory or static namespace.
+            max_nodes: Maximum nodes listed or traversed in bounded views.
+            max_edges: Maximum edges rendered in neighborhood views.
+            neighborhood_depth: Default neighborhood traversal depth.
+
+        Returns:
+            Configured in-memory graph backend.
+        """
+        return cls(
+            InMemoryGraphStore(),
+            namespace=namespace,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+            neighborhood_depth=neighborhood_depth,
+        )
 
     @classmethod
     def local(
@@ -271,10 +301,145 @@ class GraphMemoryBackend(BackendProtocol):
         """Add LangChain graph documents through the configured adapter."""
         self.store.add_graph_documents(documents, scope_key=self._scope_key())
 
+    def record_graph_trace(
+        self,
+        *,
+        situation: str,
+        rationale: str,
+        action: str,
+        outcome: str,
+        trace_id: str | None = None,
+        artifacts: Sequence[str] | None = None,
+        evidence: Sequence[str] | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        subagent_id: str | None = None,
+        task_id: str | None = None,
+        **metadata: Any,
+    ) -> str:
+        """Record a Situation/Rationale/Action/Outcome reasoning trace.
+
+        Args:
+            situation: What the agent observed.
+            rationale: Why the agent chose the action.
+            action: What the agent did.
+            outcome: What happened after the action.
+            trace_id: Optional caller-provided trace id.
+            artifacts: Optional files or artifacts involved in the action.
+            evidence: Optional evidence supporting the rationale or outcome.
+            run_id: Optional run scope id.
+            agent_id: Optional agent id.
+            subagent_id: Optional subagent id.
+            task_id: Optional task id.
+            **metadata: Additional JSON-serializable metadata written to trace nodes and edges.
+
+        Returns:
+            The trace id used for the recorded graph.
+        """
+        trace_id = validate_node_id(trace_id or _new_trace_id())
+        scope_key = self._scope_key()
+        trace_metadata = merge_metadata(
+            {
+                "kind": "reasoning_trace",
+                "situation": _validate_trace_text(situation, field="situation"),
+                "rationale": _validate_trace_text(rationale, field="rationale"),
+                "action": _validate_trace_text(action, field="action"),
+                "outcome": _validate_trace_text(outcome, field="outcome"),
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "subagent_id": subagent_id,
+                "task_id": task_id,
+            },
+            scope_key=scope_key,
+            metadata={**metadata, "source": metadata.get("source", "graph_trace")},
+        )
+        self.store.add_node("Trace", trace_id, properties=trace_metadata, scope_key=scope_key)
+
+        node_specs = [
+            ("Situation", f"{trace_id}-situation", situation),
+            ("Rationale", f"{trace_id}-rationale", rationale),
+            ("Action", f"{trace_id}-action", action),
+            ("Outcome", f"{trace_id}-outcome", outcome),
+        ]
+        for label, node_id, text in node_specs:
+            self.store.add_node(
+                label,
+                node_id,
+                properties=merge_metadata(
+                    {
+                        "text": text,
+                        "trace_id": trace_id,
+                        "run_id": run_id,
+                        "agent_id": agent_id,
+                        "subagent_id": subagent_id,
+                        "task_id": task_id,
+                    },
+                    scope_key=scope_key,
+                    metadata=metadata,
+                ),
+                scope_key=scope_key,
+            )
+
+        self._add_trace_edge("Trace", trace_id, "HAS_SITUATION", "Situation", f"{trace_id}-situation", scope_key=scope_key, metadata=metadata)
+        self._add_trace_edge("Trace", trace_id, "HAS_RATIONALE", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=metadata)
+        self._add_trace_edge("Trace", trace_id, "HAS_ACTION", "Action", f"{trace_id}-action", scope_key=scope_key, metadata=metadata)
+        self._add_trace_edge("Trace", trace_id, "HAS_OUTCOME", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
+        self._add_trace_edge(
+            "Situation",
+            f"{trace_id}-situation",
+            "LED_TO",
+            "Rationale",
+            f"{trace_id}-rationale",
+            scope_key=scope_key,
+            metadata=metadata,
+        )
+        self._add_trace_edge(
+            "Rationale",
+            f"{trace_id}-rationale",
+            "JUSTIFIED",
+            "Action",
+            f"{trace_id}-action",
+            scope_key=scope_key,
+            metadata=metadata,
+        )
+        self._add_trace_edge("Action", f"{trace_id}-action", "PRODUCED", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
+
+        self._link_scope_node("Run", run_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=metadata)
+        self._link_scope_node("Agent", agent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=metadata)
+        self._link_scope_node("Subagent", subagent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=metadata)
+        self._link_scope_node("Task", task_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=metadata)
+
+        for artifact in artifacts or []:
+            artifact_text = _validate_trace_text(artifact, field="artifact")
+            artifact_id = _value_id("artifact", artifact_text)
+            self.store.add_node(
+                "Artifact",
+                artifact_id,
+                properties=merge_metadata({"value": artifact_text, "trace_id": trace_id}, scope_key=scope_key, metadata=metadata),
+                scope_key=scope_key,
+            )
+            self._add_trace_edge("Trace", trace_id, "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=metadata)
+            self._add_trace_edge("Action", f"{trace_id}-action", "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=metadata)
+
+        for item in evidence or []:
+            evidence_text = _validate_trace_text(item, field="evidence")
+            evidence_id = _value_id("evidence", evidence_text)
+            self.store.add_node(
+                "Evidence",
+                evidence_id,
+                properties=merge_metadata({"value": evidence_text, "trace_id": trace_id}, scope_key=scope_key, metadata=metadata),
+                scope_key=scope_key,
+            )
+            self._add_trace_edge("Evidence", evidence_id, "SUPPORTS", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=metadata)
+            self._add_trace_edge("Evidence", evidence_id, "SUPPORTS", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
+
+        return trace_id
+
     def recall_graph_memory(
         self,
         query: str,
         *,
+        anchors: Sequence[str] | None = None,
         mode: RecallMode = "auto",
         token_budget: int = 2000,
         max_depth: int = 3,
@@ -285,6 +450,7 @@ class GraphMemoryBackend(BackendProtocol):
 
         Args:
             query: Natural-language recall query.
+            anchors: Optional concrete starting hints such as file paths, run ids, task ids, or subagent ids.
             mode: Recall expansion mode. `auto` expands while relevant, `local` reads one hop, and `deep` expands to `max_depth`.
             token_budget: Approximate output token budget.
             max_depth: Maximum traversal depth.
@@ -298,6 +464,7 @@ class GraphMemoryBackend(BackendProtocol):
             self.store,
             query,
             scope_key=self._scope_key(),
+            anchors=anchors,
             mode=mode,
             token_budget=token_budget,
             max_depth=max_depth,
@@ -360,6 +527,36 @@ class GraphMemoryBackend(BackendProtocol):
         runtime = _get_runtime_or_none()
         resolved = namespace(runtime)
         return "|".join(validate_namespace(resolved))
+
+    def _add_trace_edge(
+        self,
+        source_label: str,
+        source_id: str,
+        relationship: str,
+        target_label: str,
+        target_id: str,
+        *,
+        scope_key: str | None,
+        metadata: dict[str, Any],
+    ) -> None:
+        properties = merge_metadata({}, scope_key=scope_key, metadata=metadata)
+        self.store.add_edge(source_label, source_id, relationship, target_label, target_id, properties=properties, scope_key=scope_key)
+
+    def _link_scope_node(
+        self,
+        label: str,
+        node_id: str | None,
+        relationship: str,
+        trace_id: str,
+        *,
+        scope_key: str | None,
+        metadata: dict[str, Any],
+    ) -> None:
+        if node_id is None:
+            return
+        validate_node_id(node_id)
+        self.store.add_node(label, node_id, properties=merge_metadata({}, scope_key=scope_key, metadata=metadata), scope_key=scope_key)
+        self._add_trace_edge(label, node_id, relationship, "Trace", trace_id, scope_key=scope_key, metadata=metadata)
 
 
 def _get_runtime_or_none() -> Any | None:
@@ -428,3 +625,26 @@ def _normalize_pattern(pattern: str) -> tuple[str, bool]:
     if pattern == "/graph":
         return "/", True
     return pattern, False
+
+
+def _new_trace_id() -> str:
+    return f"trace-{uuid4().hex[:12]}"
+
+
+def _value_id(prefix: str, value: str) -> str:
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def _validate_trace_text(value: str, *, field: str) -> str:
+    if not isinstance(value, str):
+        msg = f"{field} must be a string."
+        raise GraphMemoryValidationError(msg)
+    normalized = value.strip()
+    if not normalized:
+        msg = f"{field} must not be empty."
+        raise GraphMemoryValidationError(msg)
+    if "\x00" in normalized or any(ord(char) < 32 for char in normalized):
+        msg = f"{field} must not contain NUL bytes or control characters."
+        raise GraphMemoryValidationError(msg)
+    return normalized

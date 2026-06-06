@@ -25,6 +25,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
     @tool
     def recall_graph_memory(
         query: str,
+        anchors: list[str] | None = None,
         mode: RecallMode = "auto",
         token_budget: int = 2000,
         max_depth: int = 3,
@@ -35,6 +36,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
         try:
             return graph_backend.recall_graph_memory(
                 query,
+                anchors=anchors,
                 mode=mode,
                 token_budget=token_budget,
                 max_depth=max_depth,
@@ -92,7 +94,39 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
             return f"Error: {exc}"
         return f"Added {len(documents)} graph document(s)."
 
-    return [recall_graph_memory, add_graph_node, add_graph_edge, add_graph_documents]
+    @tool
+    def record_graph_trace(
+        situation: str,
+        rationale: str,
+        action: str,
+        outcome: str,
+        artifacts: list[str] | None = None,
+        evidence: list[str] | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        subagent_id: str | None = None,
+        task_id: str | None = None,
+    ) -> str:
+        """Record a Situation/Rationale/Action/Outcome trace for long-running agent work."""
+        try:
+            trace_id = graph_backend.record_graph_trace(
+                situation=situation,
+                rationale=rationale,
+                action=action,
+                outcome=outcome,
+                artifacts=artifacts,
+                evidence=evidence,
+                run_id=run_id,
+                agent_id=agent_id,
+                subagent_id=subagent_id,
+                task_id=task_id,
+                source="graph_trace_tool",
+            )
+        except GraphMemoryError as exc:
+            return f"Error: {exc}"
+        return f"Recorded graph trace {trace_id}."
+
+    return [recall_graph_memory, add_graph_node, add_graph_edge, add_graph_documents, record_graph_trace]
 
 
 def cast_documents(documents: Sequence[Any]) -> Sequence[Any]:
