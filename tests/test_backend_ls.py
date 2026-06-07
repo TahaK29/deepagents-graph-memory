@@ -1,10 +1,8 @@
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.stores import InMemoryGraphStore
 
 
 def seed_backend():
-    store = InMemoryGraphStore()
-    backend = GraphMemoryBackend(store)
+    backend = GraphMemoryBackend.create()
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "redis")
     return backend
 

@@ -12,11 +12,14 @@ from deepagents_graph_memory.errors import GraphMemoryError
 from deepagents_graph_memory.recall import RecallMode
 
 
-def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
+def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_writes: bool = False) -> list[Any]:
     """Create safe graph memory recall and write tools.
 
     Args:
         graph_backend: Graph memory backend to mutate.
+        include_low_level_writes: When true, expose generic node, edge, and
+            graph-document write tools. Keep this false for unconstrained agent
+            use; prefer domain-specific tools or `record_graph_trace`.
 
     Returns:
         LangChain tool objects for controlled graph writes.
@@ -32,7 +35,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
         max_nodes: int = 50,
         max_edges: int = 100,
     ) -> str:
-        """Recall relevant graph memory for entity, relationship, dependency, ownership, incident, or runbook questions."""
+        """Recall relevant graph memory: entities, relationships, prior reasoning traces, and connected context."""
         try:
             return graph_backend.recall_graph_memory(
                 query,
@@ -50,7 +53,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
     def add_graph_node(label: str, node_id: str, properties: dict[str, Any] | None = None) -> str:
         """Add or update a graph node.
 
-        Use this for entity memory such as services, teams, incidents, tools, projects, and runbooks.
+        Use this for entity memory such as any named thing in the workflow's domain.
         """
         try:
             graph_backend.add_graph_node(label, node_id, properties, source="graph_memory_tool")
@@ -69,7 +72,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
     ) -> str:
         """Add or update a directed graph relationship.
 
-        Use this for relationship memory such as dependencies, ownership, incidents, and runbook links.
+        Use this for relationship memory such as any directed connection between two entities.
         """
         try:
             graph_backend.add_graph_edge(
@@ -126,7 +129,10 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend) -> list[Any]:
             return f"Error: {exc}"
         return f"Recorded graph trace {trace_id}."
 
-    return [recall_graph_memory, add_graph_node, add_graph_edge, add_graph_documents, record_graph_trace]
+    tools = [recall_graph_memory, record_graph_trace]
+    if include_low_level_writes:
+        tools.extend([add_graph_node, add_graph_edge, add_graph_documents])
+    return tools
 
 
 def cast_documents(documents: Sequence[Any]) -> Sequence[Any]:

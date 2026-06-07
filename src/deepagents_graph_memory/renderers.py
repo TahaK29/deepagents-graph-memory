@@ -123,6 +123,7 @@ def _render_properties(properties: Mapping[str, object]) -> list[str]:
             "created_by_agent",
             "source_agent",
             "source",
+            "search_text",
         }
     }
     if not public:
@@ -140,7 +141,7 @@ def _render_edge_sections(node: GraphNode, edges: Iterable[GraphEdge]) -> list[s
             heading = _outgoing_heading(edge.relationship)
             grouped[heading].append(_node_link(edge.target_label, edge.target_id))
         elif edge.target_label == node.label and edge.target_id == node.id:
-            heading = _incoming_heading(edge.relationship, edge.source_label)
+            heading = _incoming_heading(edge.relationship)
             grouped[heading].append(_node_link(edge.source_label, edge.source_id))
     lines: list[str] = []
     for heading in sorted(grouped):
@@ -159,7 +160,6 @@ def _node_link(label: str, node_id: str) -> str:
 
 def _outgoing_heading(relationship: str) -> str:
     mapping = {
-        "DEPENDS_ON": "Depends on",
         "HAS_ACTION": "Action",
         "HAS_OUTCOME": "Outcome",
         "HAS_RATIONALE": "Rationale",
@@ -168,24 +168,15 @@ def _outgoing_heading(relationship: str) -> str:
         "INVOLVED": "Involved",
         "JUSTIFIED": "Justified",
         "LED_TO": "Led to",
-        "OWNS": "Owns",
-        "AFFECTED": "Affected",
         "PRODUCED": "Produced",
         "RECORDED": "Recorded",
-        "RESOLVED_BY": "Resolved by",
         "SUPPORTS": "Supports",
     }
-    return mapping.get(relationship, relationship.replace("_", " ").title())
+    return mapping.get(relationship, _humanize_relationship(relationship))
 
 
-def _incoming_heading(relationship: str, source_label: str) -> str:
-    if relationship == "OWNS":
-        return "Owned by"
-    if relationship == "AFFECTED" and source_label.lower() == "incident":
-        return "Related incidents"
+def _incoming_heading(relationship: str) -> str:
     mapping = {
-        "AFFECTED": "Affected by",
-        "DEPENDS_ON": "Dependency of",
         "HAS_ACTION": "Action for",
         "HAS_OUTCOME": "Outcome for",
         "HAS_RATIONALE": "Rationale for",
@@ -196,10 +187,13 @@ def _incoming_heading(relationship: str, source_label: str) -> str:
         "LED_TO": "Led from",
         "PRODUCED": "Produced by",
         "RECORDED": "Recorded by",
-        "RESOLVED_BY": "Resolves",
         "SUPPORTS": "Supported by",
     }
-    return mapping.get(relationship, f"Incoming {relationship.replace('_', ' ').title()}")
+    return mapping.get(relationship, f"{_humanize_relationship(relationship)} (incoming)")
+
+
+def _humanize_relationship(relationship: str) -> str:
+    return relationship.replace("_", " ").capitalize()
 
 
 def _format_value(value: object) -> str:

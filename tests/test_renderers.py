@@ -25,8 +25,8 @@ def test_render_node_groups_relationships():
     assert "# service: langfuse" in markdown
     assert "## Depends on" in markdown
     assert "[redis](/nodes/service/redis.md)" in markdown
-    assert "## Owned by" in markdown
-    assert "## Related incidents" in markdown
+    assert "## Owns (incoming)" in markdown
+    assert "## Affected (incoming)" in markdown
 
 
 def test_render_neighborhood_truncation():

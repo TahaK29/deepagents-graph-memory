@@ -95,17 +95,21 @@ In the intended VGS mode, the agent-facing read path is `recall_graph_memory`, n
 normal VFS file tools. Writes go through graph tools so validation, provenance, and
 schema discipline can be enforced.
 
-## Persistence Model
+## Storage Lifetime
 
-Persistence is not the main product promise. The main promise is better structured
+Durable storage is not the product promise. The main promise is better structured
 context during long-running work.
 
-Kuzu is the supported graph store. Lifetime is controlled by the path:
+Kuzu is the supported graph store. VGS uses Kuzu's in-memory database mode:
 
-- Use a temporary Kuzu directory for a scratchpad that disappears after the run.
-- Reuse a Kuzu directory for durable project or workflow context.
+```python
+kuzu.Database(":memory:")
+```
 
-In both cases, the graph should not default to user-profile semantics. Preferred
+The graph is a RAM scratchpad that disappears when the Python process exits. Do
+not add on-disk Kuzu paths or manual graph reset APIs.
+
+The graph should not default to user-profile semantics. Preferred
 scopes are project/workflow oriented:
 
 - `project_id`
@@ -114,9 +118,6 @@ scopes are project/workflow oriented:
 - `subagent_id`
 - `run_id`
 - `tenant_id`
-
-If a persistent graph is configured, it should persist project/workflow intelligence,
-not arbitrary facts about the user.
 
 ## Why A Graph Can Beat Plain VFS
 
@@ -267,26 +268,31 @@ The recall flow should:
 5. Return source paths or artifact ids so another system or developer can inspect
    raw evidence when needed.
 
-## Optional Graph Database Dependency
+## Kuzu Storage Dependency
 
-Graph database libraries are larger than the base Deep Agents dependency set. The
-Python packaging pattern is optional extras plus lazy imports.
+This package is intentionally Kuzu-first. The graph backend should use a real Kuzu
+database in memory.
 
-The base package should stay lightweight:
+The main Deep Agents package should not pull Kuzu. That matters if this code is
+merged upstream: normal Deep Agents users should not download graph database
+dependencies unless they enable VGS. This package is the explicit VGS package, so
+installing it installs the VGS runtime dependencies.
+
+VGS package install:
 
 ```bash
 pip install deepagents-graph-memory
 ```
 
-Graph database support should be opt-in:
+Do not maintain a separate Python in-memory graph store. Temporary graph memory
+should be backed by Kuzu's in-memory database mode:
 
-```bash
-pip install "deepagents-graph-memory[kuzu]"
+```python
+kuzu.Database(":memory:")
 ```
 
-Code should import optional graph libraries only inside the paths that need them.
-If the extra is missing, raise a clear configuration error telling the user which
-extra to install.
+If Kuzu or its LangChain integration is missing, fail with a clear configuration
+error when graph memory is imported. Do not silently fall back to a weaker store.
 
 ## Safety And Boundaries
 

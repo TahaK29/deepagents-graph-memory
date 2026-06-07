@@ -1,10 +1,9 @@
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
-from deepagents_graph_memory.stores import InMemoryGraphStore
 
 
 def test_rejects_unsafe_tool_write_labels():
-    backend = GraphMemoryBackend(InMemoryGraphStore())
+    backend = GraphMemoryBackend.create()
 
     try:
         backend.add_graph_node("bad-label", "id")
@@ -15,7 +14,7 @@ def test_rejects_unsafe_tool_write_labels():
 
 
 def test_rejects_unsafe_relationship_name():
-    backend = GraphMemoryBackend(InMemoryGraphStore())
+    backend = GraphMemoryBackend.create()
 
     try:
         backend.add_graph_edge("service", "a", "DROP TABLE", "service", "b")
@@ -26,7 +25,7 @@ def test_rejects_unsafe_relationship_name():
 
 
 def test_rejects_unserializable_properties():
-    backend = GraphMemoryBackend(InMemoryGraphStore())
+    backend = GraphMemoryBackend.create()
 
     try:
         backend.add_graph_node("service", "langfuse", {"bad": object()})

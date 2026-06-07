@@ -1,9 +1,12 @@
+from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
+from langchain_core.documents import Document
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.stores import InMemoryGraphStore
+from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 
 
 def test_scopes_isolate_reads_and_writes():
-    store = InMemoryGraphStore()
+    store = KuzuGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -17,7 +20,7 @@ def test_scopes_isolate_reads_and_writes():
 
 
 def test_scope_metadata_is_written():
-    store = InMemoryGraphStore()
+    store = KuzuGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=("alice",))
 
     backend.add_graph_node("service", "langfuse")
@@ -26,3 +29,42 @@ def test_scope_metadata_is_written():
     assert node.properties["scope_key"] == "alice"
     assert "created_at" in node.properties
     assert "updated_at" in node.properties
+
+
+def test_graph_documents_preserve_scope_isolation():
+    store = KuzuGraphStore.memory()
+    alice = GraphMemoryBackend(store, namespace=("alice",))
+    bob = GraphMemoryBackend(store, namespace=("bob",))
+
+    alice_source = Node(id="alice-source", type="Entity", properties={"name": "alice source"})
+    alice_target = Node(id="alice-target", type="Entity", properties={"name": "alice target"})
+    bob_source = Node(id="bob-source", type="Entity", properties={"name": "bob source"})
+    bob_target = Node(id="bob-target", type="Entity", properties={"name": "bob target"})
+
+    alice.add_graph_documents(
+        [
+            GraphDocument(
+                nodes=[alice_source, alice_target],
+                relationships=[Relationship(source=alice_source, target=alice_target, type="LINKED_TO", properties={"reason": "alice"})],
+                source=Document(page_content="alice graph document"),
+            )
+        ]
+    )
+    bob.add_graph_documents(
+        [
+            GraphDocument(
+                nodes=[bob_source, bob_target],
+                relationships=[Relationship(source=bob_source, target=bob_target, type="LINKED_TO", properties={"reason": "bob"})],
+                source=Document(page_content="bob graph document"),
+            )
+        ]
+    )
+
+    assert alice.read("/nodes/Entity/alice-source.md").error is None
+    assert alice.read("/nodes/Entity/bob-source.md").file_data is None
+    assert bob.read("/nodes/Entity/bob-source.md").error is None
+    assert bob.read("/nodes/Entity/alice-source.md").file_data is None
+
+    alice_node = store.get_node("Entity", "alice-source", scope_key="alice")
+    assert alice_node.properties["scope_key"] == "alice"
+    assert store.get_node("Entity", "bob-source", scope_key="alice") is None

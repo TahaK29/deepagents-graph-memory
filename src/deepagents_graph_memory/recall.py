@@ -166,6 +166,16 @@ def _find_seed_nodes(
 ) -> list[_NodeRef]:
     seeds: list[_NodeRef] = []
     seen: set[_NodeRef] = set()
+    for anchor in anchors:
+        ref = _seed_from_anchor(anchor)
+        if ref is None or ref in seen:
+            continue
+        if store.get_node(ref.label, ref.node_id, scope_key=scope_key) is None:
+            continue
+        seeds.append(ref)
+        seen.add(ref)
+        if len(seeds) >= limit:
+            return seeds
     for search_query in _search_queries(query, terms, anchors):
         result = store.search(search_query, scope_key=scope_key, limit=limit)
         state.search_truncated = state.search_truncated or result.truncated
@@ -185,9 +195,19 @@ def _find_seed_nodes(
     return seeds
 
 
+def _seed_from_anchor(anchor: str) -> _NodeRef | None:
+    try:
+        parsed = parse_graph_path(anchor)
+    except GraphMemoryPathError:
+        return None
+    if parsed.kind not in {"node", "neighborhood"} or parsed.label is None or parsed.node_id is None:
+        return None
+    return _NodeRef(parsed.label, parsed.node_id)
+
+
 def _search_queries(query: str, terms: set[str], anchors: Sequence[str]) -> list[str]:
-    queries = [query]
-    queries.extend(anchors)
+    queries = list(anchors)
+    queries.append(query)
     queries.extend(sorted(terms, key=lambda item: (-len(item), item)))
     result: list[str] = []
     seen: set[str] = set()
@@ -270,7 +290,7 @@ def _score_text(text: str, terms: set[str], query: str) -> int:
 
 
 def _properties_text(properties: dict[str, JsonValue]) -> str:
-    public = {key: value for key, value in properties.items() if key not in {"scope_key", "created_at", "updated_at"}}
+    public = {key: value for key, value in properties.items() if key not in {"scope_key", "created_at", "updated_at", "search_text"}}
     return json.dumps(public, sort_keys=True)
 
 
@@ -283,14 +303,6 @@ def _query_terms(query: str) -> set[str]:
         terms.add(raw.replace("-", "_"))
         if raw.endswith("s") and len(raw) > 3:
             terms.add(raw[:-1])
-        if raw in {"dependency", "dependencies", "depends", "depended"} or raw.startswith("depend"):
-            terms.add("depend")
-        if raw in {"owner", "owners", "owned", "owns"}:
-            terms.add("own")
-        if raw in {"affected", "affects", "impact", "impacted"}:
-            terms.add("affect")
-        if raw in {"resolved", "resolves", "resolver"}:
-            terms.add("resolve")
     return terms
 
 
@@ -363,7 +375,7 @@ def _property_suffix(properties: dict[str, JsonValue]) -> str:
     public = {
         key: value
         for key, value in properties.items()
-        if key not in {"scope_key", "created_at", "updated_at", "created_by", "created_by_agent", "source_agent", "source"}
+        if key not in {"scope_key", "created_at", "updated_at", "created_by", "created_by_agent", "source_agent", "source", "search_text"}
     }
     if not public:
         return ""

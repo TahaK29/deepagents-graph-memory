@@ -1,12 +1,10 @@
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.errors import GraphMemoryConfigurationError
-from deepagents_graph_memory.stores import InMemoryGraphStore
+from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
 def make_backend() -> GraphMemoryBackend:
-    store = InMemoryGraphStore()
-    backend = GraphMemoryBackend(store)
+    backend = GraphMemoryBackend.create()
     backend.add_graph_edge("incident", "incident-123", "AFFECTED", "service", "langfuse")
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "redis")
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "postgres")
@@ -55,6 +53,40 @@ def test_recall_auto_stops_when_next_hop_is_not_relevant():
     assert "Traversal note:" in content
 
 
+def test_recall_uses_aliases_as_seed_text():
+    backend = GraphMemoryBackend.create()
+    backend.add_graph_node(
+        "service",
+        "auth-service",
+        {
+            "name": "auth-service",
+            "aliases": ["auth", "authentication service", "login service"],
+            "description": "Handles login, session refresh, and token validation.",
+        },
+    )
+    backend.record_graph_trace(
+        situation="login bug caused session refresh failures",
+        rationale="auth-service was returning expired tokens",
+        action="patched token refresh handling",
+        outcome="login test passed",
+        artifacts=["src/auth/session.ts"],
+    )
+
+    content = backend.recall_graph_memory("what did we try for the login bug?", mode="deep", max_depth=3)
+
+    assert "service: auth-service" in content
+    assert "patched token refresh handling" in content
+
+
+def test_recall_uses_graph_path_anchor_as_seed():
+    backend = make_backend()
+
+    content = backend.recall_graph_memory("what is connected?", anchors=["/graph/nodes/service/langfuse.md"])
+
+    assert "service: langfuse" in content
+    assert "DEPENDS_ON" in content
+
+
 def test_recall_stops_at_edge_budget():
     backend = make_backend()
 
@@ -72,7 +104,7 @@ def test_recall_stops_at_token_budget():
 
 
 def test_recall_respects_scope():
-    store = InMemoryGraphStore()
+    store = KuzuGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
     alice.add_graph_node("service", "langfuse")
@@ -92,19 +124,3 @@ def test_recall_tool_is_exposed():
 
     assert "Graph Memory Recall" in content
     assert "DEPENDS_ON" in content
-
-
-def test_from_graph_rejects_unknown_graph_objects():
-    class UnknownGraph:
-        def query(self):
-            return []
-
-        def add_graph_documents(self):
-            return None
-
-    try:
-        GraphMemoryBackend.from_graph(UnknownGraph())
-    except GraphMemoryConfigurationError as exc:
-        assert "KuzuGraph" in str(exc)
-    else:
-        raise AssertionError("from_graph() should reject unknown graph objects")

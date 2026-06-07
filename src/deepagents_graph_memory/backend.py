@@ -9,9 +9,22 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from deepagents.backends.protocol import BackendProtocol, EditResult, FileInfo, GlobResult, GrepMatch, GrepResult, LsResult, ReadResult, WriteResult
+from deepagents.backends.protocol import (
+    BackendProtocol,
+    EditResult,
+    FileDownloadResponse,
+    FileInfo,
+    FileUploadResponse,
+    GlobResult,
+    GrepMatch,
+    GrepResult,
+    LsResult,
+    ReadResult,
+    WriteResult,
+)
 
-from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryPathError, GraphMemoryValidationError
+from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
+from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 from deepagents_graph_memory.paths import (
     neighborhood_path,
     node_path,
@@ -24,7 +37,7 @@ from deepagents_graph_memory.paths import (
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
 from deepagents_graph_memory.renderers import render_index, render_neighborhood, render_node, render_schema, render_search
-from deepagents_graph_memory.stores import GraphStoreAdapter, InMemoryGraphStore, merge_metadata
+from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
 NamespaceFactory = Callable[[Any], tuple[str, ...]]
@@ -59,7 +72,7 @@ class GraphMemoryBackend(BackendProtocol):
         self.neighborhood_depth = neighborhood_depth
 
     @classmethod
-    def ephemeral(
+    def create(
         cls,
         *,
         namespace: Namespace = None,
@@ -67,39 +80,9 @@ class GraphMemoryBackend(BackendProtocol):
         max_edges: int = 100,
         neighborhood_depth: int = 1,
     ) -> GraphMemoryBackend:
-        """Create an in-memory graph context scratchpad for tests and local development.
+        """Create an in-memory Kuzu graph memory backend.
 
         Args:
-            namespace: Optional Deep Agents-style namespace factory or static namespace.
-            max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in neighborhood views.
-            neighborhood_depth: Default neighborhood traversal depth.
-
-        Returns:
-            Configured in-memory graph backend.
-        """
-        return cls(
-            InMemoryGraphStore(),
-            namespace=namespace,
-            max_nodes=max_nodes,
-            max_edges=max_edges,
-            neighborhood_depth=neighborhood_depth,
-        )
-
-    @classmethod
-    def local(
-        cls,
-        path: str = "./graph-memory",
-        *,
-        namespace: Namespace = None,
-        max_nodes: int = 50,
-        max_edges: int = 100,
-        neighborhood_depth: int = 1,
-    ) -> GraphMemoryBackend:
-        """Create a local Kuzu-backed graph memory backend.
-
-        Args:
-            path: Local Kuzu database path.
             namespace: Optional Deep Agents-style namespace factory or static namespace.
             max_nodes: Maximum nodes listed or traversed in bounded views.
             max_edges: Maximum edges rendered in neighborhood views.
@@ -107,58 +90,9 @@ class GraphMemoryBackend(BackendProtocol):
 
         Returns:
             Configured graph memory backend.
-
-        Raises:
-            GraphMemoryConfigurationError: If the optional Kuzu dependencies are missing.
         """
-        try:
-            from deepagents_graph_memory.kuzu_store import KuzuGraphStore
-        except ImportError as exc:
-            msg = "Install Kuzu support with `pip install 'deepagents-graph-memory[kuzu]'` to use GraphMemoryBackend.local()."
-            raise GraphMemoryConfigurationError(msg) from exc
         return cls(
-            KuzuGraphStore.local(path),
-            namespace=namespace,
-            max_nodes=max_nodes,
-            max_edges=max_edges,
-            neighborhood_depth=neighborhood_depth,
-        )
-
-    @classmethod
-    def from_graph(
-        cls,
-        graph: Any,
-        *,
-        namespace: Namespace = None,
-        max_nodes: int = 50,
-        max_edges: int = 100,
-        neighborhood_depth: int = 1,
-    ) -> GraphMemoryBackend:
-        """Create a graph memory backend from a LangChain-style graph object.
-
-        Args:
-            graph: Graph object with `query`, `get_schema`, and `add_graph_documents`.
-            namespace: Optional Deep Agents-style namespace factory or static namespace.
-            max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in neighborhood views.
-            neighborhood_depth: Default neighborhood traversal depth.
-
-        Returns:
-            Configured graph memory backend.
-
-        Raises:
-            GraphMemoryConfigurationError: If the graph object is unsupported.
-        """
-        if not _is_kuzu_graph(graph):
-            msg = "from_graph() currently supports LangChain KuzuGraph objects only. Add a dedicated adapter for other graph integrations."
-            raise GraphMemoryConfigurationError(msg)
-        try:
-            from deepagents_graph_memory.kuzu_store import KuzuGraphStore
-        except ImportError as exc:
-            msg = "Install Kuzu support with `pip install 'deepagents-graph-memory[kuzu]'` to adapt LangChain Kuzu graphs."
-            raise GraphMemoryConfigurationError(msg) from exc
-        return cls(
-            KuzuGraphStore(graph),
+            KuzuGraphStore.memory(),
             namespace=namespace,
             max_nodes=max_nodes,
             max_edges=max_edges,
@@ -268,6 +202,22 @@ class GraphMemoryBackend(BackendProtocol):
         """Reject edits to generated graph memory views."""
         del old_string, new_string, replace_all
         return EditResult(error=READ_ONLY_ERROR, path=file_path)
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        """Reject uploads to generated graph memory views."""
+        return [FileUploadResponse(path=path, error=READ_ONLY_ERROR) for path, _content in files]
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        """Download generated graph memory views for Deep Agents memory loading."""
+        responses = []
+        for path in paths:
+            result = self.read(path, offset=0, limit=1_000_000)
+            if result.error is not None or result.file_data is None:
+                error = "file_not_found" if result.error and "not found" in result.error.casefold() else result.error
+                responses.append(FileDownloadResponse(path=path, error=error))
+                continue
+            responses.append(FileDownloadResponse(path=path, content=result.file_data["content"].encode("utf-8")))
+        return responses
 
     def add_graph_node(self, label: str, node_id: str, properties: dict[str, Any] | None = None, **metadata: Any) -> None:
         """Add or update a graph node through a controlled write path."""
@@ -568,11 +518,6 @@ def _get_runtime_or_none() -> Any | None:
         return get_runtime()
     except (RuntimeError, KeyError):
         return None
-
-
-def _is_kuzu_graph(graph: Any) -> bool:
-    graph_type = type(graph)
-    return graph_type.__name__ == "KuzuGraph" and graph_type.__module__.startswith(("langchain_community.", "langchain_kuzu."))
 
 
 def _file_data(content: str) -> dict[str, str]:

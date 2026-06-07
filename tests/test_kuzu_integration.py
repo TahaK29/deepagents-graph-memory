@@ -1,13 +1,8 @@
-import pytest
-
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
 
-def test_kuzu_local_backend_round_trip(tmp_path):
-    pytest.importorskip("kuzu")
-    pytest.importorskip("langchain_community.graphs.kuzu_graph")
-
-    backend = GraphMemoryBackend.local(str(tmp_path / "graph-memory"))
+def test_kuzu_memory_backend_round_trip():
+    backend = GraphMemoryBackend.create()
 
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "redis")
 

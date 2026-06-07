@@ -3,7 +3,7 @@ from deepagents_graph_memory.tools import graph_memory_tools
 
 
 def test_ephemeral_backend_records_reasoning_trace():
-    backend = GraphMemoryBackend.ephemeral()
+    backend = GraphMemoryBackend.create()
 
     trace_id = backend.record_graph_trace(
         situation="scope leak test failed because Alice could read Bob's graph node",
@@ -34,7 +34,7 @@ def test_ephemeral_backend_records_reasoning_trace():
 
 
 def test_trace_recall_follows_level_three_path():
-    backend = GraphMemoryBackend.ephemeral()
+    backend = GraphMemoryBackend.create()
     backend.record_graph_trace(
         situation="sheep saw lion near the path",
         rationale="lion is dangerous and nearby",
@@ -55,7 +55,7 @@ def test_trace_recall_follows_level_three_path():
 
 
 def test_trace_search_finds_artifacts():
-    backend = GraphMemoryBackend.ephemeral()
+    backend = GraphMemoryBackend.create()
     backend.record_graph_trace(
         situation="backend.py had a failing scope test",
         rationale="the backend read path did not preserve scope",
@@ -71,7 +71,7 @@ def test_trace_search_finds_artifacts():
 
 
 def test_trace_recall_can_start_from_anchor():
-    backend = GraphMemoryBackend.ephemeral()
+    backend = GraphMemoryBackend.create()
     backend.record_graph_trace(
         situation="backend.py had a failing scope test",
         rationale="the backend read path did not preserve scope",
@@ -87,7 +87,7 @@ def test_trace_recall_can_start_from_anchor():
 
 
 def test_record_graph_trace_tool_is_exposed():
-    backend = GraphMemoryBackend.ephemeral()
+    backend = GraphMemoryBackend.create()
     tools = {tool.name: tool for tool in graph_memory_tools(backend)}
 
     result = tools["record_graph_trace"].invoke(

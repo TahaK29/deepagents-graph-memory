@@ -1,10 +1,8 @@
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.stores import InMemoryGraphStore
 
 
 def make_backend(max_edges=100):
-    store = InMemoryGraphStore()
-    backend = GraphMemoryBackend(store, max_edges=max_edges)
+    backend = GraphMemoryBackend.create(max_edges=max_edges)
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "redis")
     backend.add_graph_edge("service", "langfuse", "DEPENDS_ON", "service", "postgres")
     backend.add_graph_edge("team", "sre-team", "OWNS", "service", "langfuse")
@@ -34,8 +32,8 @@ def test_read_node_page():
     content = result.file_data["content"]
     assert "# service: langfuse" in content
     assert "Depends on" in content
-    assert "Owned by" in content
-    assert "Related incidents" in content
+    assert "Owns (incoming)" in content
+    assert "Affected (incoming)" in content
 
 
 def test_read_neighborhood_page():
@@ -72,3 +70,13 @@ def test_read_limits_slice_lines():
 
     assert result.error is None
     assert result.file_data["content"] == "# Graph Memory"
+
+
+def test_download_files_uses_virtual_graph_views():
+    backend = make_backend()
+
+    [response] = backend.download_files(["/graph/schema.md"])
+
+    assert response.error is None
+    assert response.content is not None
+    assert b"Graph Schema" in response.content
