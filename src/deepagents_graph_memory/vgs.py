@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 from deepagents import HarnessProfile, register_harness_profile
+from deepagents.middleware.filesystem import EXECUTION_SYSTEM_PROMPT, FILESYSTEM_SYSTEM_PROMPT
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, ContentBlock, SystemMessage
 
@@ -18,9 +19,7 @@ Graph context is enabled. The graph is the source of truth for structured workfl
 situations, rationales, actions, outcomes, artifacts, failures, evidence, decisions,
 dependencies, and provenance.
 
-In VGS mode, do not assume the default Deep Agents filesystem tools are available. If
-filesystem guidance appears elsewhere in the prompt, treat this VGS guidance as the
-applicable tool policy for graph context.
+In VGS mode, do not assume the default Deep Agents filesystem tools are available.
 
 ## Reading Graph Context
 
@@ -53,7 +52,7 @@ applicable tool policy for graph context.
 
 
 class _VGSSystemPromptMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Append VGS guidance after Deep Agents middleware prompts."""
+    """Replace Deep Agents filesystem guidance with VGS guidance."""
 
     def __init__(self, system_prompt: str) -> None:
         self.system_prompt = system_prompt
@@ -63,9 +62,9 @@ class _VGSSystemPromptMiddleware(AgentMiddleware[Any, Any, Any]):
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
     ) -> ModelResponse[Any] | AIMessage:
-        """Append the VGS prompt before the model call."""
+        """Apply VGS prompt guidance before the model call."""
         return handler(
-            request.override(system_message=_append_system_text(request.system_message, self.system_prompt)),
+            request.override(system_message=_apply_vgs_system_text(request.system_message, self.system_prompt)),
         )
 
     async def awrap_model_call(
@@ -75,7 +74,7 @@ class _VGSSystemPromptMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> ModelResponse[Any] | AIMessage:
         """Async variant of `wrap_model_call`."""
         return await handler(
-            request.override(system_message=_append_system_text(request.system_message, self.system_prompt)),
+            request.override(system_message=_apply_vgs_system_text(request.system_message, self.system_prompt)),
         )
 
 
@@ -84,8 +83,7 @@ def vgs_harness_profile(*, system_prompt_suffix: str | None = VGS_SYSTEM_PROMPT_
 
     Args:
         system_prompt_suffix: Optional VGS prompt text. It is appended through
-            late middleware so graph guidance follows Deep Agents filesystem
-            middleware guidance.
+            late middleware after removing Deep Agents filesystem guidance.
 
     Returns:
         Harness profile that excludes Deep Agents filesystem tools.
@@ -108,9 +106,69 @@ def register_vgs_harness_profile(model: str, *, system_prompt_suffix: str | None
     register_harness_profile(model, vgs_harness_profile(system_prompt_suffix=system_prompt_suffix))
 
 
-def _append_system_text(system_message: SystemMessage | None, text: str) -> SystemMessage:
-    content_blocks: list[ContentBlock] = list(system_message.content_blocks) if system_message else []
+def _apply_vgs_system_text(system_message: SystemMessage | None, text: str) -> SystemMessage:
+    content_blocks = _remove_filesystem_guidance_blocks(
+        list(system_message.content_blocks) if system_message else [],
+    )
     if content_blocks:
         text = f"\n\n{text}"
     content_blocks.append({"type": "text", "text": text})
     return SystemMessage(content=cast("list[str | dict[str, str]]", content_blocks))
+
+
+def _remove_filesystem_guidance_blocks(content_blocks: list[ContentBlock]) -> list[ContentBlock]:
+    result: list[ContentBlock] = []
+    for block in content_blocks:
+        block_text = _text_block_text(block)
+        if block_text is None:
+            result.append(block)
+            continue
+
+        updated_text = _remove_filesystem_guidance_text(block_text)
+        if not updated_text:
+            continue
+        if updated_text == block_text:
+            result.append(block)
+            continue
+        result.append(cast("ContentBlock", {**block, "text": updated_text}))
+    return result
+
+
+def _text_block_text(block: ContentBlock) -> str | None:
+    if not isinstance(block, dict) or block.get("type") != "text":
+        return None
+    text = block.get("text")
+    return text if isinstance(text, str) else None
+
+
+def _remove_filesystem_guidance_text(text: str) -> str:
+    leading_whitespace = text[: len(text) - len(text.lstrip())]
+    stripped = text.strip()
+    if not _is_deepagents_filesystem_guidance(stripped):
+        return text
+
+    execute_index = stripped.find("## Execute Tool `execute`")
+    if execute_index == -1:
+        return ""
+    return leading_whitespace + stripped[execute_index:]
+
+
+def _is_deepagents_filesystem_guidance(text: str) -> bool:
+    if text == FILESYSTEM_SYSTEM_PROMPT:
+        return True
+    if text == f"{FILESYSTEM_SYSTEM_PROMPT}\n\n{EXECUTION_SYSTEM_PROMPT}":
+        return True
+
+    if not text.startswith("## Following Conventions"):
+        return False
+    if "## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`" not in text:
+        return False
+    if "## Large Tool Results" not in text:
+        return False
+    if "Offloaded tool results are stored under " not in text:
+        return False
+
+    execute_index = text.find("## Execute Tool `execute`")
+    if execute_index == -1:
+        return True
+    return text[execute_index:].strip() == EXECUTION_SYSTEM_PROMPT
