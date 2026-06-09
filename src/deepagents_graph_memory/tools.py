@@ -39,7 +39,8 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
 
         When reporting state changes from retrieved traces, distinguish what actually changed from what the agent did in response.
         A switch in tool or action is not the same as the underlying condition changing.
-        If the same outcome recurs across multiple steps, the state changed once when it first appeared and stayed unchanged afterward."""
+        If the same outcome recurs across multiple steps, the state changed once when it first appeared and stayed unchanged afterward.
+        """
         try:
             return graph_backend.recall_graph_memory(
                 query,

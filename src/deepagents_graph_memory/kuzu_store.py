@@ -26,10 +26,67 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised when package is absent
     raise ImportError("Kuzu support requires the `kuzu` package.") from exc
 
-try:
-    from langchain_community.graphs.kuzu_graph import KuzuGraph
-except ImportError as exc:  # pragma: no cover - exercised when package is absent
-    raise ImportError("Kuzu support requires `langchain-community`.") from exc
+
+class _KuzuGraph:
+    """Minimal query and schema adapter over a `kuzu.Connection`.
+
+    Replaces the langchain-community `KuzuGraph` wrapper. `KuzuGraphStore` only
+    ever used that class for query execution and schema reflection, so this
+    package no longer depends on the sunset `langchain-community` package for
+    what is a thin wrapper over `kuzu.Connection`.
+    """
+
+    def __init__(self, database: Any) -> None:
+        self.conn = kuzu.Connection(database)
+        self.schema = ""
+        self.refresh_schema()
+
+    @property
+    def get_schema(self) -> str:
+        """Return the reflected graph schema text."""
+        return self.schema
+
+    def query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """Execute a Cypher query and return rows as dictionaries."""
+        result = self.conn.execute(query, params or {})
+        column_names = result.get_column_names()
+        rows: list[dict[str, Any]] = []
+        while result.has_next():
+            rows.append(dict(zip(column_names, result.get_next(), strict=False)))
+        return rows
+
+    def refresh_schema(self) -> None:
+        """Reflect node and relationship tables into a schema string."""
+        node_properties = []
+        for table_name in self.conn._get_node_table_names():
+            current: dict[str, Any] = {"properties": [], "label": table_name}
+            properties = self.conn._get_node_property_names(table_name)
+            for property_name in properties:
+                property_type = properties[property_name]["type"]
+                list_flag = ""
+                if properties[property_name]["dimension"] > 0:
+                    if "shape" in properties[property_name]:
+                        for s in properties[property_name]["shape"]:
+                            list_flag += f"[{s}]"
+                    else:
+                        for _ in range(properties[property_name]["dimension"]):
+                            list_flag += "[]"
+                current["properties"].append((property_name, property_type + list_flag))
+            node_properties.append(current)
+
+        rel_tables = self.conn._get_rel_table_names()
+        relationships = [f"(:{table['src']})-[:{table['name']}]->(:{table['dst']})" for table in rel_tables]
+
+        rel_properties = []
+        for table in rel_tables:
+            current = {"properties": [], "label": table["name"]}
+            result = self.conn.execute(f"CALL table_info('{table['name']}') RETURN *;")
+            while result.has_next():
+                row = result.get_next()
+                current["properties"].append((row[1], row[2]))
+            rel_properties.append(current)
+
+        self.schema = f"Node properties: {node_properties}\nRelationships properties: {rel_properties}\nRelationships: {relationships}\n"
 
 
 class KuzuGraphStore:
@@ -48,7 +105,7 @@ class KuzuGraphStore:
     def memory(cls) -> KuzuGraphStore:
         """Create an in-memory Kuzu graph store."""
         database = kuzu.Database(":memory:")
-        return cls(KuzuGraph(database, allow_dangerous_requests=True))
+        return cls(_KuzuGraph(database))
 
     def get_schema(self, *, scope_key: str | None = None) -> str:
         """Return graph schema text."""

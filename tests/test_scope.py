@@ -1,8 +1,35 @@
-from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
+from dataclasses import dataclass, field
+from typing import Any
+
 from langchain_core.documents import Document
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+
+
+# Lightweight stand-ins for LangChain GraphDocument/Node/Relationship. The store
+# only duck-types these (nodes, relationships, type, id, properties, source,
+# target), so the suite does not need the sunset langchain-community package.
+@dataclass
+class Node:
+    id: str
+    type: str
+    properties: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Relationship:
+    source: Node
+    target: Node
+    type: str
+    properties: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class GraphDocument:
+    nodes: list[Node]
+    relationships: list[Relationship]
+    source: Any = None
 
 
 def test_scopes_isolate_reads_and_writes():
