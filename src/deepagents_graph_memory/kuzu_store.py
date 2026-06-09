@@ -56,37 +56,29 @@ class _KuzuGraph:
         return rows
 
     def refresh_schema(self) -> None:
-        """Reflect node and relationship tables into a schema string."""
-        node_properties = []
-        for table_name in self.conn._get_node_table_names():
-            current: dict[str, Any] = {"properties": [], "label": table_name}
-            properties = self.conn._get_node_property_names(table_name)
-            for property_name in properties:
-                property_type = properties[property_name]["type"]
-                list_flag = ""
-                if properties[property_name]["dimension"] > 0:
-                    if "shape" in properties[property_name]:
-                        for s in properties[property_name]["shape"]:
-                            list_flag += f"[{s}]"
-                    else:
-                        for _ in range(properties[property_name]["dimension"]):
-                            list_flag += "[]"
-                current["properties"].append((property_name, property_type + list_flag))
-            node_properties.append(current)
+        """Reflect node and relationship tables into a schema string.
 
-        rel_tables = self.conn._get_rel_table_names()
-        relationships = [f"(:{table['src']})-[:{table['name']}]->(:{table['dst']})" for table in rel_tables]
+        Uses public Cypher introspection (`SHOW_TABLES`, `TABLE_INFO`,
+        `SHOW_CONNECTION`) rather than kuzu's private `_get_*` methods, so the
+        adapter does not depend on unstable internals.
+        """
+        tables = self.query("CALL SHOW_TABLES() RETURN *;")
+        node_labels = [row["name"] for row in tables if row["type"] == "NODE"]
+        rel_labels = [row["name"] for row in tables if row["type"] == "REL"]
 
-        rel_properties = []
-        for table in rel_tables:
-            current = {"properties": [], "label": table["name"]}
-            result = self.conn.execute(f"CALL table_info('{table['name']}') RETURN *;")
-            while result.has_next():
-                row = result.get_next()
-                current["properties"].append((row[1], row[2]))
-            rel_properties.append(current)
+        node_properties = [{"properties": self._table_properties(label), "label": label} for label in node_labels]
+        rel_properties = [{"properties": self._table_properties(label), "label": label} for label in rel_labels]
+        relationships = [
+            f"(:{connection['source table name']})-[:{label}]->(:{connection['destination table name']})"
+            for label in rel_labels
+            for connection in self.query(f"CALL SHOW_CONNECTION('{label}') RETURN *;")
+        ]
 
         self.schema = f"Node properties: {node_properties}\nRelationships properties: {rel_properties}\nRelationships: {relationships}\n"
+
+    def _table_properties(self, table: str) -> list[tuple[str, str]]:
+        """Return ``(name, type)`` pairs for a node or relationship table."""
+        return [(row["name"], row["type"]) for row in self.query(f"CALL TABLE_INFO('{table}') RETURN *;")]
 
 
 class KuzuGraphStore:
