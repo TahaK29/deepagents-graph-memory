@@ -9,7 +9,7 @@ A graph-native context scratchpad for LangChain Deep Agents. Record structured r
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
-  <img src="assets/vgs-graph.png" alt="Virtual Graph System: connected reasoning traces" height = "50%" width="100%">
+  <img src="assets/vgs-graph.png" alt="Virtual Graph System: connected reasoning traces" width="50%">
 </p>
 
 ## Motivation
