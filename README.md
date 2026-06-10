@@ -95,9 +95,13 @@ lion is dangerous --JUSTIFIED--> sheep ran away
 sheep ran away --PRODUCED--> sheep survived
 ```
 
+Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
+
 ### Graph Recall
 
 `recall_graph_memory` searches for seed facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Pass anchors (file paths, run IDs, task IDs) to give recall a concrete starting point.
+
+Recall uses Kuzu full-text (keyword) search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. No vector/embedding search is used.
 
 ```python
 recall_graph_memory("what services did incident 123 affect and what do they depend on?")
