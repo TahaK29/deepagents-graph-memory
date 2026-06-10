@@ -8,6 +8,10 @@ A graph-native context scratchpad for LangChain Deep Agents. Record structured r
 [![LangChain](https://img.shields.io/badge/LangChain-Framework-1C3C3C?logo=langchain&logoColor=white)](https://python.langchain.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="assets/vgs-graph.png" alt="Virtual Graph System: connected reasoning traces" width="100%">
+</p>
+
 ## Motivation
 
 This project is an implementation of the ideas from Neo4j's [*From Recall to Reasoning: How Context Graphs Upgrade an Agent's Brain*](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/), applied to the [LangChain Deep Agents](https://github.com/langchain-ai/deepagents) framework.
