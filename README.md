@@ -1,69 +1,88 @@
 # deepagents-graph-memory
 
-`deepagents-graph-memory` is an experimental Virtual Graph System (VGS) for LangChain Deep Agents.
+A graph-native context scratchpad for LangChain Deep Agents. Record structured reasoning traces, build connected work state, and recall multi-hop context -- all backed by Kuzu.
 
-The goal is to give a long-running agent a structured graph scratchpad for workflow context: situations, rationales, actions, outcomes, files, tool calls, failures, evidence, experiments, dependencies, and decisions.
+[![Status: Experimental](https://img.shields.io/badge/Status-Experimental-F59E0B)](https://github.com/TahaK29/deepagents-graph-memory)
+[![PyPI version](https://badge.fury.io/py/deepagents-graph-memory.svg)](https://badge.fury.io/py/deepagents-graph-memory)
+[![Python versions](https://img.shields.io/pypi/pyversions/deepagents-graph-memory.svg)](https://pypi.org/project/deepagents-graph-memory/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-VGS is domain-agnostic: the Situation/Rationale/Action/Outcome trace shape and the recall path apply to any project's workflow, not a specific one. The schema beyond traces (node labels, relationship names) is whatever the agent's domain needs.
+## What It Does
 
-This is not ordinary user memory. Do not use it for facts like "Taha likes ice cream." Use it for connected work state like "this failing test led to this hypothesis, this edit, this result, and this final decision."
+| Structured Traces | Graph Recall | Virtual Graph Views |
+|---|---|---|
+| Situation &rarr; Rationale &rarr; Action &rarr; Outcome | Full-text search + bounded traversal | Read-only `/graph/...` markdown projections |
+| Connected reasoning chains | Anchor-based seed expansion | Schema, index, node, neighborhood, search |
+| Domain-agnostic trace shape | Budget-aware (tokens, depth, nodes, edges) | Inspectable by agents, tests, and humans |
 
-## Intended Mode
+This is **not** ordinary user memory. Don't use it for facts like "Taha likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
-VGS should be off by default in a normal Deep Agents install.
+**Key features:** controlled graph writes through LangChain tools, VGS harness profile that hides default VFS tools, multi-tenant scoping via namespace factory, and budgeted recall with configurable limits.
 
-When VGS is enabled:
-
-- Kuzu is the supported graph store.
-- Graph memory tools are exposed.
-- Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, and `grep`.
-- Generated `/graph/...` markdown views are read-only projections over the graph.
-- Graph writes go through controlled tools, not raw graph queries.
-
-This package can provide the backend, tools, and harness-profile helper. A native flag like `create_deep_agent(..., vgs=True)` would require an upstream change in the main `deepagents` library.
-
-## Install
-
-Install this VGS package when graph memory is enabled:
+## Quick Start
 
 ```bash
 pip install deepagents-graph-memory
 ```
 
-Installing `deepagents-graph-memory` installs the VGS runtime dependencies, including Kuzu and LangChain Community. Normal Deep Agents usage stays lightweight because upstream `deepagents` does not import this package unless VGS is explicitly used.
-
-## Basic Usage
-
 ```python
 from deepagents import create_deep_agent
-from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, register_vgs_harness_profile
+from deepagents_graph_memory import (
+    GraphMemoryBackend,
+    graph_memory_tools,
+    register_vgs_harness_profile,
+)
 
 MODEL = "google_genai:gemini-3.5-flash"
 
+# Hide default VFS tools, enable graph-focused operation
 register_vgs_harness_profile(MODEL)
 
+# In-memory Kuzu graph -- no disk, no config
 graph_backend = GraphMemoryBackend.create()
 
 agent = create_deep_agent(
     model=MODEL,
     tools=[*graph_memory_tools(graph_backend)],
-    memory=[
-        "/graph/index.md",
-        "/graph/schema.md",
-    ],
+    memory=["/graph/index.md", "/graph/schema.md"],
     backend=graph_backend,
 )
 ```
 
-`register_vgs_harness_profile(MODEL)` is the toggle this package can provide locally. It tells Deep Agents to hide the normal filesystem tools for that model key, so the agent works through graph tools instead of the VFS tool surface.
+## How It Works
 
-VGS is Kuzu-only. Importing `deepagents_graph_memory` requires the VGS runtime dependencies instead of falling back to another store.
+### Graph Traces
 
-`GraphMemoryBackend.create()` creates a Kuzu in-memory graph using `kuzu.Database(":memory:")`. The data lives in the Python process's RAM, so it works on a laptop, VM, or container while the process is alive, but it is lost on restart and is not shared across multiple workers.
+`record_graph_trace` records the core reasoning shape:
 
-Kuzu-backed recall uses Kuzu full-text search to find seed nodes, relationship-label search for relationship-oriented questions, and bounded graph traversal to recover connected context. Vector search and graph algorithms are intentionally not part of the default recall path; those are better suited to optional ranking, summarization, or domain-specific extensions.
+```
+Situation -> Rationale -> Action -> Outcome
+```
 
-There is no manual graph reset API. To start fresh, start a new Python process or create a new backend instance.
+For example:
+
+```
+Situation: "sheep saw lion"
+Rationale: "lion is dangerous"
+Action:    "sheep ran away"
+Outcome:   "sheep survived"
+```
+
+The graph stores edges like:
+
+```
+sheep saw lion --LED_TO--> lion is dangerous
+lion is dangerous --JUSTIFIED--> sheep ran away
+sheep ran away --PRODUCED--> sheep survived
+```
+
+### Graph Recall
+
+`recall_graph_memory` searches for seed facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Pass anchors (file paths, run IDs, task IDs) to give recall a concrete starting point.
+
+```python
+recall_graph_memory("what services did incident 123 affect and what do they depend on?")
+```
 
 ## Graph Tools
 
@@ -71,95 +90,198 @@ There is no manual graph reset API. To start fresh, start a new Python process o
 graph_memory_tools(graph_backend)
 ```
 
-The tools are:
+| Tool | Purpose |
+|---|---|
+| `recall_graph_memory` | Primary read path -- search, expand, return context |
+| `record_graph_trace` | High-level write -- Situation &rarr; Rationale &rarr; Action &rarr; Outcome |
 
-- `recall_graph_memory`
-- `record_graph_trace`
-
-`record_graph_trace` is the preferred high-level write tool for long-running agent work. It records the Level 3 context-graph shape:
-
-```text
-Situation -> Rationale -> Action -> Outcome
-```
-
-Example:
-
-```text
-Situation: sheep saw lion
-Rationale: lion is dangerous
-Action: sheep ran away
-Outcome: sheep survived
-```
-
-The graph stores edges like:
-
-```text
-sheep saw lion --LED_TO--> lion is dangerous
-lion is dangerous --JUSTIFIED--> sheep ran away
-sheep ran away --PRODUCED--> sheep survived
-```
-
-`recall_graph_memory` searches for seed graph facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Callers can pass anchors such as file paths, run ids, task ids, or subagent ids to give recall a concrete starting point.
-
-Low-level graph write tools are available for application builders, but are not exposed by default because unconstrained agents can create drifting labels and relationship types over time:
+Low-level write tools are available for application builders but not exposed by default, since unconstrained agents can create drifting labels and relationship types:
 
 ```python
 graph_memory_tools(graph_backend, include_low_level_writes=True)
 ```
 
-This adds:
-
-- `add_graph_node`
-- `add_graph_edge`
-- `add_graph_documents`
+| Tool | Purpose |
+|---|---|
+| `add_graph_node` | Create or update entities |
+| `add_graph_edge` | Create or update relationships |
+| `add_graph_documents` | Ingest LangChain documents |
 
 For production use, prefer domain-specific tools that call `graph_backend.add_graph_node(...)` and `graph_backend.add_graph_edge(...)` with your application's approved labels and relationships.
 
 ## Virtual Graph Views
 
-The backend supports these generated markdown paths:
+The backend projects graph state into read-only markdown paths:
 
-```text
-/graph/schema.md
-/graph/index.md
-/graph/nodes/{label}/{id}.md
-/graph/views/neighborhood/{label}/{id}.md
-/graph/search/{query}.md
+| Path | Description |
+|---|---|
+| `/graph/schema.md` | Current graph schema |
+| `/graph/index.md` | Graph memory landing page |
+| `/graph/nodes/{label}/{id}.md` | Single node with properties and relationships |
+| `/graph/views/neighborhood/{label}/{id}.md` | Node with immediate connections |
+| `/graph/search/{query}.md` | Search results with preview text |
+
+These are inspectable views, not storage. Writes go through graph tools, not file operations.
+
+## VGS Mode
+
+When VGS (Virtual Graph System) is enabled via `register_vgs_harness_profile`:
+
+- Graph memory tools are exposed
+- Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
+- The agent works through graph tools instead of the filesystem surface
+- VGS prompt guidance is injected automatically
+
+VGS should be **off by default** in a normal Deep Agents install. Enable it only when graph-structured context is needed.
+
+## Architecture
+
+### System Overview
+
+```mermaid
+graph TB
+    Agent["LangChain Deep Agent"]
+
+    subgraph VGS ["Virtual Graph System"]
+        Tools["Graph Tools<br/><i>tools.py</i>"]
+        Backend["GraphMemoryBackend<br/><i>backend.py</i>"]
+        Recall["Recall Engine<br/><i>recall.py</i>"]
+        Renderers["Markdown Renderers<br/><i>renderers.py</i>"]
+        Paths["Path Parser<br/><i>paths.py</i>"]
+        VGSProfile["VGS Harness Profile<br/><i>vgs.py</i>"]
+    end
+
+    subgraph Store ["Storage"]
+        Kuzu["Kuzu In-Memory Graph<br/><i>kuzu_store.py</i>"]
+    end
+
+    Agent -->|"record_graph_trace<br/>recall_graph_memory"| Tools
+    Tools --> Backend
+    Backend --> Recall
+    Backend --> Renderers
+    Backend --> Paths
+    Recall --> Kuzu
+    Renderers --> Kuzu
+    VGSProfile -.->|"hides VFS tools"| Agent
+
+    style VGS fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style Store fill:#1e293b,stroke:#334155,color:#e2e8f0
 ```
 
-These files are inspectable views over the graph, not storage. In VGS mode the normal VFS tools are hidden from the agent, but these paths can still be used by Deep Agents memory loading, direct backend calls, tests, and debugging.
+### Default vs VGS Mode
 
-## Writes
+```mermaid
+graph LR
+    subgraph Default ["Default Deep Agents"]
+        VFS["VFS Tools<br/>ls, read_file, write_file,<br/>edit_file, glob, grep"]
+    end
 
-Generated graph views are read-only. `write` and `edit` return:
+    subgraph VGSMode ["VGS Mode"]
+        VFSHidden["VFS Tools<br/><s>hidden</s>"]
+        GraphTools["Graph Tools<br/>recall_graph_memory<br/>record_graph_trace"]
+        GraphViews["/graph/ Views<br/>schema, index, nodes,<br/>neighborhood, search"]
+    end
 
-```text
-Graph memory views are read-only. Use graph memory tools to add or update graph facts.
+    Default -->|"register_vgs_harness_profile()"| VGSMode
+    VFSHidden ~~~ GraphTools
+    GraphTools --> GraphViews
+
+    style VFSHidden fill:#991b1b,stroke:#7f1d1d,color:#fecaca
+    style GraphTools fill:#065f46,stroke:#064e3b,color:#a7f3d0
+    style GraphViews fill:#1e40af,stroke:#1e3a8a,color:#bfdbfe
 ```
 
-Raw unrestricted Cypher is intentionally not exposed as an agent-facing read or write path.
+### Recall Pipeline
+
+```mermaid
+graph LR
+    Q["Query or Anchors"] --> Seed["Seed Search<br/><i>full-text + relationship labels</i>"]
+    Seed --> Expand["Graph Expansion<br/><i>bounded traversal</i>"]
+    Expand --> Budget["Budget Enforcement<br/><i>tokens, depth, nodes, edges</i>"]
+    Budget --> MD["Markdown Output<br/><i>with /graph/... source paths</i>"]
+```
+
+### Trace Data Model
+
+```mermaid
+graph LR
+    S["Situation"] -->|LED_TO| R["Rationale"]
+    R -->|JUSTIFIED| A["Action"]
+    A -->|PRODUCED| O["Outcome"]
+
+    style S fill:#7c3aed,stroke:#6d28d9,color:#ede9fe
+    style R fill:#2563eb,stroke:#1d4ed8,color:#dbeafe
+    style A fill:#d97706,stroke:#b45309,color:#fef3c7
+    style O fill:#059669,stroke:#047857,color:#d1fae5
+```
+
+### Module Reference
+
+| Component | Module | Description |
+|---|---|---|
+| **Backend** | `backend.py` | `BackendProtocol` implementation for Deep Agents |
+| **Graph Store** | `kuzu_store.py` | Kuzu adapter with FTS indexing and scoped queries |
+| **Recall Engine** | `recall.py` | Seed search &rarr; expansion &rarr; budget enforcement &rarr; markdown output |
+| **Tools** | `tools.py` | LangChain tools with error boundaries |
+| **Renderers** | `renderers.py` | Graph data &rarr; markdown view projections |
+| **Paths** | `paths.py` | Virtual path parsing and validation |
+| **VGS Profile** | `vgs.py` | Harness profile helpers and prompt middleware |
+| **Errors** | `errors.py` | `GraphMemoryError`, `GraphMemoryConfigurationError`, `GraphMemoryPathError`, `GraphMemoryValidationError` |
 
 ## Example Domain: SRE
 
-VGS itself is domain-agnostic; this is one example of how a project might shape its
-own labels and relationships on top of it.
+VGS is domain-agnostic; here is one example of how a project might shape its labels and relationships:
 
-Graph facts:
-
-```text
+```
 Langfuse DEPENDS_ON Redis
 Langfuse DEPENDS_ON Postgres
 SRE Team OWNS Langfuse
 Incident 123 AFFECTED Langfuse
-Incident 123 RESOLVED_BY Restart Ingestion Workers Runbook
+Incident 123 RESOLVED_BY "Restart Ingestion Workers" Runbook
 ```
 
-Useful recall:
-
-```text
+Recall query:
+```python
 recall_graph_memory("what services did incident 123 affect and what do they depend on?")
 ```
 
-## Development Note
+## Installation
 
-Tests and local development should use `GraphMemoryBackend.create()`. It always creates a fresh Kuzu in-memory graph.
+```bash
+pip install deepagents-graph-memory           # Core (includes Kuzu + LangChain)
+pip install deepagents-graph-memory[test]      # + pytest, ruff
+```
+
+### Requirements
+
+- Python 3.11+
+- Deep Agents 0.5.2+
+- Kuzu 0.11.3+
+
+## Development
+
+```bash
+git clone https://github.com/TahaK29/deepagents-graph-memory.git
+cd deepagents-graph-memory
+pip install -e ".[test]"
+python3 -m pytest -q                          # Run all tests
+python3 -m ruff check .                       # Lint
+```
+
+## Design
+
+`GraphMemoryBackend.create()` creates a Kuzu in-memory graph via `kuzu.Database(":memory:")`. Data lives in the Python process's RAM -- works on a laptop, VM, or container, but is lost on restart and not shared across workers.
+
+Recall uses full-text search to find seed nodes, relationship-label search for relationship-oriented questions, and bounded graph traversal to recover connected context. Vector search and graph algorithms are intentionally not part of the default recall path.
+
+Raw Cypher is not exposed as an agent-facing read or write path. Generated graph views are read-only projections.
+
+For the full design rationale, see [DESIGN.md](DESIGN.md).
+
+## License
+
+MIT
+
+---
+
+**deepagents-graph-memory** is experimental. [GitHub Issues](https://github.com/TahaK29/deepagents-graph-memory/issues) | [PyPI](https://pypi.org/project/deepagents-graph-memory/)
