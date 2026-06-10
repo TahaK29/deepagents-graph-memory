@@ -3,9 +3,28 @@
 A graph-native context scratchpad for LangChain Deep Agents. Record structured reasoning traces, build connected work state, and recall multi-hop context -- all backed by Kuzu.
 
 [![Status: Experimental](https://img.shields.io/badge/Status-Experimental-F59E0B)](https://github.com/TahaK29/deepagents-graph-memory)
-[![PyPI version](https://badge.fury.io/py/deepagents-graph-memory.svg)](https://badge.fury.io/py/deepagents-graph-memory)
-[![Python versions](https://img.shields.io/pypi/pyversions/deepagents-graph-memory.svg)](https://pypi.org/project/deepagents-graph-memory/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Kuzu](https://img.shields.io/badge/Kuzu-Graph_DB-FF6B35?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyTDIgN2wxMCA1IDEwLTUtMTAtNXpNMiAxN2wxMCA1IDEwLTVNMiAxMmwxMCA1IDEwLTUiLz48L3N2Zz4=)](https://kuzudb.com)
+[![LangChain](https://img.shields.io/badge/LangChain-Framework-1C3C3C?logo=langchain&logoColor=white)](https://python.langchain.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+## Motivation
+
+This project is an implementation of the ideas from Neo4j's [*From Recall to Reasoning: How Context Graphs Upgrade an Agent's Brain*](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/), applied to the [LangChain Deep Agents](https://github.com/langchain-ai/deepagents) framework.
+
+The paper identifies three levels of agent memory:
+
+| Level | Memory Type | Capability |
+|---|---|---|
+| **Level 1** | Reactive | Short-term only -- agents respond to immediate observations without learning |
+| **Level 2** | Recall | Long-term via vector embeddings -- agents remember past events but lack explicit relationships |
+| **Level 3** | Reasoning | Context graphs -- agents understand underlying rules and apply knowledge to novel situations |
+
+Most agent memory systems stop at Level 2: they store embeddings and retrieve by similarity. But **similarity is not relevance** -- as data grows, vector recall generates noise and loses the causal chains that explain *why* something happened, not just *what* happened.
+
+Context graphs solve this by structuring agent experiences as a web of relationships (Situation &rarr; Rationale &rarr; Action &rarr; Outcome), enabling multi-hop reasoning, knowledge transfer across tasks, and the ability to unlearn outdated information.
+
+`deepagents-graph-memory` brings this Level 3 context graph to Deep Agents, replacing the flat virtual filesystem with a graph-native scratchpad backed by [Kuzu](https://kuzudb.com). The goal: agents that don't just recall -- they reason.
 
 ## What It Does
 
@@ -15,7 +34,7 @@ A graph-native context scratchpad for LangChain Deep Agents. Record structured r
 | Connected reasoning chains | Anchor-based seed expansion | Schema, index, node, neighborhood, search |
 | Domain-agnostic trace shape | Budget-aware (tokens, depth, nodes, edges) | Inspectable by agents, tests, and humans |
 
-This is **not** ordinary user memory. Don't use it for facts like "Taha likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
+This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
 **Key features:** controlled graph writes through LangChain tools, VGS harness profile that hides default VFS tools, multi-tenant scoping via namespace factory, and budgeted recall with configurable limits.
 
