@@ -24,7 +24,7 @@ Most agent memory systems stop at Level 2: they store embeddings and retrieve by
 
 Context graphs solve this by structuring agent experiences as a web of relationships (Situation &rarr; Rationale &rarr; Action &rarr; Outcome), enabling multi-hop reasoning, knowledge transfer across tasks, and the ability to unlearn outdated information.
 
-`deepagents-graph-memory` brings this Level 3 context graph to Deep Agents, replacing the flat virtual filesystem with a graph-native scratchpad backed by [Kuzu](https://kuzudb.com). The goal: agents that don't just recall -- they reason.
+`deepagents-graph-memory` brings this Level 3 context graph to Deep Agents which is currently at level 2, replacing the flat virtual filesystem with a graph-native scratchpad backed by [Kuzu](https://kuzudb.com). The goal: agents that don't just recall -- they reason.
 
 ## What It Does
 
@@ -303,4 +303,4 @@ MIT
 
 ---
 
-**deepagents-graph-memory** is experimental. [GitHub Issues](https://github.com/TahaK29/deepagents-graph-memory/issues) | [PyPI](https://pypi.org/project/deepagents-graph-memory/)
+**deepagents-graph-memory** is experimental. [GitHub Issues](https://github.com/TahaK29/deepagents-graph-memory/issues) 
