@@ -40,6 +40,7 @@ from deepagents_graph_memory.renderers import render_index, render_neighborhood,
 from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
+TRACE_TEXT_ALLOWED_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
 NamespaceFactory = Callable[[Any], tuple[str, ...]]
 Namespace = str | Sequence[str] | NamespaceFactory | None
 
@@ -178,11 +179,11 @@ class GraphMemoryBackend(BackendProtocol):
         except (GraphMemoryPathError, GraphMemoryValidationError) as exc:
             return GrepResult(error=str(exc), matches=None)
 
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:
+    def glob(self, pattern: str, path: str | None = None) -> GlobResult:
         """Find graph memory virtual files by glob pattern."""
         try:
             scope_key = self._scope_key()
-            base_path, had_graph_prefix = normalize_graph_path(path)
+            base_path, had_graph_prefix = normalize_graph_path(path or "/")
             internal_pattern, _pattern_had_graph_prefix = _normalize_pattern(pattern)
             matches = []
             for candidate in self._candidate_files(scope_key=scope_key):
@@ -288,6 +289,14 @@ class GraphMemoryBackend(BackendProtocol):
         """
         trace_id = validate_node_id(trace_id or _new_trace_id())
         scope_key = self._scope_key()
+        trace_context = _without_none(
+            {
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "subagent_id": subagent_id,
+                "task_id": task_id,
+            }
+        )
         trace_metadata = merge_metadata(
             {
                 "kind": "reasoning_trace",
@@ -295,10 +304,7 @@ class GraphMemoryBackend(BackendProtocol):
                 "rationale": _validate_trace_text(rationale, field="rationale"),
                 "action": _validate_trace_text(action, field="action"),
                 "outcome": _validate_trace_text(outcome, field="outcome"),
-                "run_id": run_id,
-                "agent_id": agent_id,
-                "subagent_id": subagent_id,
-                "task_id": task_id,
+                **trace_context,
             },
             scope_key=scope_key,
             metadata={**metadata, "source": metadata.get("source", "graph_trace")},
@@ -319,10 +325,7 @@ class GraphMemoryBackend(BackendProtocol):
                     {
                         "text": text,
                         "trace_id": trace_id,
-                        "run_id": run_id,
-                        "agent_id": agent_id,
-                        "subagent_id": subagent_id,
-                        "task_id": task_id,
+                        **trace_context,
                     },
                     scope_key=scope_key,
                     metadata=metadata,
@@ -589,7 +592,15 @@ def _validate_trace_text(value: str, *, field: str) -> str:
     if not normalized:
         msg = f"{field} must not be empty."
         raise GraphMemoryValidationError(msg)
-    if "\x00" in normalized or any(ord(char) < 32 for char in normalized):
-        msg = f"{field} must not contain NUL bytes or control characters."
+    if _has_unsafe_control_char(normalized):
+        msg = f"{field} must not contain NUL bytes or unsafe control characters."
         raise GraphMemoryValidationError(msg)
     return normalized
+
+
+def _has_unsafe_control_char(value: str) -> bool:
+    return any(ord(char) < 32 and char not in TRACE_TEXT_ALLOWED_CONTROL_CHARS for char in value)
+
+
+def _without_none(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}

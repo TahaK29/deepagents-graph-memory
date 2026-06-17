@@ -33,6 +33,42 @@ def test_ephemeral_backend_records_reasoning_trace():
     assert node.properties["subagent_id"] == "subagent-debugger"
 
 
+def test_record_graph_trace_omits_unset_optional_metadata():
+    backend = GraphMemoryBackend.create()
+
+    trace_id = backend.record_graph_trace(
+        situation="trace captured a useful observation",
+        rationale="the result should be reusable",
+        action="recorded the trace",
+        outcome="trace was stored",
+    )
+
+    trace = backend.read(f"/nodes/Trace/{trace_id}.md")
+
+    assert trace.error is None
+    content = trace.file_data["content"]
+    assert "agent_id" not in content
+    assert "run_id" not in content
+    assert "subagent_id" not in content
+    assert "task_id" not in content
+
+
+def test_record_graph_trace_accepts_multiline_trace_text():
+    backend = GraphMemoryBackend.create()
+
+    trace_id = backend.record_graph_trace(
+        situation="schema discovery",
+        rationale="DDL has the compact column list",
+        action="read DDL.csv",
+        outcome="Knowledge state changed.\nBIKESHARE_TRIPS.start_station_id NUMBER\nBIKESHARE_STATION_INFO.station_id VARCHAR",
+    )
+
+    trace = backend.read(f"/nodes/Trace/{trace_id}.md")
+
+    assert trace.error is None
+    assert "BIKESHARE_TRIPS.start_station_id" in trace.file_data["content"]
+
+
 def test_trace_recall_follows_level_three_path():
     backend = GraphMemoryBackend.create()
     backend.record_graph_trace(

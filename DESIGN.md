@@ -53,7 +53,7 @@ It provides:
 - Controlled graph write tools.
 - A recall tool that retrieves a relevant graph slice under budgets.
 - A harness-profile helper that hides the default Deep Agents VFS tools.
-- A Kuzu-backed runtime path kept behind an optional Python package extra.
+- A Kuzu-backed runtime path.
 
 The graph database is the source of truth for graph facts. The Markdown files under
 `/graph/` are generated views, not storage.

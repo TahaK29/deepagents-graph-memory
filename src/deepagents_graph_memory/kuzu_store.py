@@ -110,8 +110,7 @@ class KuzuGraphStore:
 
     def list_labels(self, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
         """List known node labels."""
-        del scope_key
-        labels = self._labels()
+        labels = [label for label in self._labels() if self._label_has_nodes(label, scope_key=scope_key)]
         return LimitedResult(items=labels[:limit], truncated=len(labels) > limit)
 
     def list_node_ids(self, label: str, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
@@ -119,8 +118,18 @@ class KuzuGraphStore:
         validate_identifier(label, field="label")
         if label not in self._labels():
             return LimitedResult(items=[])
-        rows = self._query(f"MATCH (n:{label}) RETURN n.id AS id, n.scope_key AS scope_key LIMIT {int(limit) + 1}", {})
-        ids = [str(row["id"]) for row in rows if row.get("id") is not None and self._row_scope_matches(row, scope_key)]
+        scope_where, params = _scope_where("n", scope_key)
+        rows = self._query(
+            f"""
+            MATCH (n:{label})
+            WHERE {scope_where}
+            RETURN n.id AS id
+            ORDER BY id
+            LIMIT {int(limit) + 1}
+            """,
+            params,
+        )
+        ids = [str(row["id"]) for row in rows if row.get("id") is not None]
         return LimitedResult(items=ids[:limit], truncated=len(ids) > limit)
 
     def get_node(self, label: str, node_id: str, *, scope_key: str | None = None) -> GraphNode | None:
@@ -129,13 +138,10 @@ class KuzuGraphStore:
         validate_node_id(node_id)
         if label not in self._labels():
             return None
-        rows = self._query(f"MATCH (n:{label} {{id: $id}}) RETURN n", {"id": node_id})
+        rows = self._query(f"MATCH (n:{label} {{pk: $pk}}) RETURN n", {"pk": _node_pk(label, node_id, scope_key)})
         if not rows:
             return None
-        node = _coerce_node(rows[0].get("n"), default_label=label, default_id=node_id)
-        if not _scope_matches(node.properties, scope_key):
-            return None
-        return node
+        return _coerce_node(rows[0].get("n"), default_label=label, default_id=node_id)
 
     def get_neighbors(
         self,
@@ -212,13 +218,20 @@ class KuzuGraphStore:
         search_text = node_search_text(label, node_id, props)
         self._query(
             f"""
-            MERGE (n:{label} {{id: $id}})
-            SET n.type = "entity",
+            MERGE (n:{label} {{pk: $pk}})
+            SET n.id = $id,
+                n.type = "entity",
                 n.search_text = $search_text,
                 n.properties = $properties,
                 n.scope_key = $scope_key
             """,
-            {"id": node_id, "search_text": search_text, "properties": json.dumps(props, sort_keys=True), "scope_key": scope_key},
+            {
+                "pk": _node_pk(label, node_id, scope_key),
+                "id": node_id,
+                "search_text": search_text,
+                "properties": json.dumps(props, sort_keys=True),
+                "scope_key": scope_key,
+            },
         )
 
     def add_edge(
@@ -244,15 +257,15 @@ class KuzuGraphStore:
         self._ensure_rel_table(relationship, source_label, target_label)
         self._query(
             f"""
-            MATCH (source:{source_label} {{id: $source_id}}),
-                  (target:{target_label} {{id: $target_id}})
+            MATCH (source:{source_label} {{pk: $source_pk}}),
+                  (target:{target_label} {{pk: $target_pk}})
             MERGE (source)-[rel:{relationship}]->(target)
             SET rel.properties = $properties,
                 rel.scope_key = $scope_key
             """,
             {
-                "source_id": source_id,
-                "target_id": target_id,
+                "source_pk": _node_pk(source_label, source_id, scope_key),
+                "target_pk": _node_pk(target_label, target_id, scope_key),
                 "properties": json.dumps(props, sort_keys=True),
                 "scope_key": scope_key,
             },
@@ -280,16 +293,31 @@ class KuzuGraphStore:
                 )
 
     def _get_immediate_edges(self, label: str, node_id: str, *, scope_key: str | None, limit: int) -> list[GraphEdge]:
-        rows = self._query(f"MATCH (n:{label} {{id: $id}})-[r]->(m) RETURN n, r, m LIMIT {int(limit)}", {"id": node_id})
-        incoming_rows = self._query(f"MATCH (m)-[r]->(n:{label} {{id: $id}}) RETURN m, r, n LIMIT {int(limit)}", {"id": node_id})
+        params = {"pk": _node_pk(label, node_id, scope_key)}
+        rows = self._query(
+            f"""
+            MATCH (n:{label} {{pk: $pk}})-[r]->(m)
+            RETURN n, r, m
+            LIMIT {int(limit)}
+            """,
+            params,
+        )
+        incoming_rows = self._query(
+            f"""
+            MATCH (m)-[r]->(n:{label} {{pk: $pk}})
+            RETURN m, r, n
+            LIMIT {int(limit)}
+            """,
+            params,
+        )
         edges: list[GraphEdge] = []
         for row in rows:
             edge = _coerce_edge(row, source_key="n", target_key="m")
-            if edge is not None and _scope_matches(edge.properties, scope_key):
+            if edge is not None:
                 edges.append(edge)
         for row in incoming_rows:
             edge = _coerce_edge(row, source_key="m", target_key="n")
-            if edge is not None and _scope_matches(edge.properties, scope_key):
+            if edge is not None:
                 edges.append(edge)
         return edges
 
@@ -297,21 +325,23 @@ class KuzuGraphStore:
         scored: list[tuple[float, SearchItem]] = []
         for label in self._labels():
             self._ensure_fts_index(label)
+            scope_where, scope_params = _scope_where("node", scope_key)
             try:
                 rows = self._query(
                     f"""
-                    CALL QUERY_FTS_INDEX('{label}', 'graph_memory_fts', $query, top := {int(limit) + 1})
+                    CALL QUERY_FTS_INDEX('{label}', 'graph_memory_fts', $query, top := {_fts_candidate_limit(limit, scope_key)})
+                    WHERE {scope_where}
                     RETURN node, score
                     ORDER BY score DESC
                     """,
-                    {"query": query},
+                    {"query": query, **scope_params},
                 )
             except GraphMemoryConfigurationError as exc:
                 msg = f"Kuzu full-text search failed for label {label!r}. Ensure the Kuzu fts extension is available."
                 raise GraphMemoryConfigurationError(msg) from exc
             for row in rows:
                 node = _coerce_node(row.get("node"), default_label=label, default_id="")
-                if not node.id or not _scope_matches(node.properties, scope_key):
+                if not node.id:
                     continue
                 score = float(row.get("score", 0.0) or 0.0)
                 scored.append(
@@ -332,17 +362,19 @@ class KuzuGraphStore:
             score = lexical_search_score(query, relationship.replace("_", " "))
             if score <= 0:
                 continue
+            scope_where, params = _scope_where("r", scope_key)
             rows = self._query(
                 f"""
                 MATCH (source)-[r:{relationship}]->(target)
+                WHERE {scope_where}
                 RETURN source, r, target
                 LIMIT {int(limit) + 1}
                 """,
-                {},
+                params,
             )
             for row in rows:
                 edge = _coerce_edge(row, source_key="source", target_key="target")
-                if edge is None or not _scope_matches(edge.properties, scope_key):
+                if edge is None:
                     continue
                 item = SearchItem(
                     path=neighborhood_path(edge.source_label, edge.source_id),
@@ -401,12 +433,13 @@ class KuzuGraphStore:
         self._query(
             f"""
             CREATE NODE TABLE IF NOT EXISTS {label} (
+                pk STRING,
                 id STRING,
                 type STRING,
                 search_text STRING,
                 properties STRING,
                 scope_key STRING,
-                PRIMARY KEY(id)
+                PRIMARY KEY(pk)
             );
             """,
             {},
@@ -429,12 +462,18 @@ class KuzuGraphStore:
             if "already exists" not in str(exc).casefold():
                 raise
 
-    @staticmethod
-    def _row_scope_matches(row: dict[str, Any], scope_key: str | None) -> bool:
-        if scope_key is None:
-            return True
-        value = row.get("scope_key")
-        return value == scope_key
+    def _label_has_nodes(self, label: str, *, scope_key: str | None) -> bool:
+        scope_where, params = _scope_where("n", scope_key)
+        rows = self._query(
+            f"""
+            MATCH (n:{label})
+            WHERE {scope_where}
+            RETURN n.id AS id
+            LIMIT 1
+            """,
+            params,
+        )
+        return bool(rows)
 
 
 def _coerce_node(value: Any, *, default_label: str, default_id: str) -> GraphNode:
@@ -443,7 +482,7 @@ def _coerce_node(value: Any, *, default_label: str, default_id: str) -> GraphNod
     node_id = str(data.get("id", default_id))
     properties = _decode_properties(data)
     for key, item in data.items():
-        if key not in {"_id", "_label", "id", "properties", "search_text", "type"} and item is not None:
+        if key not in {"_id", "_label", "id", "pk", "properties", "search_text", "type"} and item is not None:
             properties.setdefault(key, item)
     return GraphNode(label=label, id=node_id, properties=validate_properties(properties))
 
@@ -483,7 +522,7 @@ def _decode_properties(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _summarize_properties(properties: dict[str, Any]) -> str:
-    public = {key: value for key, value in properties.items() if key not in {"scope_key", "search_text"}}
+    public = {key: value for key, value in properties.items() if key not in {"pk", "scope_key", "search_text"}}
     if not public:
         return ""
     return json.dumps(public, sort_keys=True)
@@ -496,8 +535,17 @@ def _with_scope(properties: dict[str, Any] | None, scope_key: str | None) -> Pro
     return validate_properties(scoped)
 
 
-def _scope_matches(properties: dict[str, Any], scope_key: str | None) -> bool:
+def _node_pk(label: str, node_id: str, scope_key: str | None) -> str:
+    return json.dumps([scope_key, label, node_id], separators=(",", ":"))
+
+
+def _scope_where(alias: str, scope_key: str | None) -> tuple[str, dict[str, Any]]:
     if scope_key is None:
-        return True
-    value = properties.get("scope_key")
-    return value == scope_key
+        return f"{alias}.scope_key IS NULL", {}
+    return f"{alias}.scope_key = $scope_key", {"scope_key": scope_key}
+
+
+def _fts_candidate_limit(limit: int, scope_key: str | None) -> int:
+    if scope_key is None:
+        return int(limit) + 1
+    return max(int(limit) + 1, 1000)

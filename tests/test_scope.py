@@ -46,6 +46,68 @@ def test_scopes_isolate_reads_and_writes():
     assert bob.read("/nodes/service/langfuse.md").file_data is None
 
 
+def test_scopes_isolate_shared_public_node_ids():
+    store = KuzuGraphStore.memory()
+    alice = GraphMemoryBackend(store, namespace=("alice",))
+    bob = GraphMemoryBackend(store, namespace=("bob",))
+
+    alice.add_graph_node("service", "shared", {"owner": "alice"})
+    bob.add_graph_node("service", "shared", {"owner": "bob"})
+
+    alice_node = alice.read("/nodes/service/shared.md")
+    bob_node = bob.read("/nodes/service/shared.md")
+
+    assert alice_node.error is None
+    assert bob_node.error is None
+    assert "alice" in alice_node.file_data["content"]
+    assert "bob" not in alice_node.file_data["content"]
+    assert "bob" in bob_node.file_data["content"]
+    assert "alice" not in bob_node.file_data["content"]
+
+
+def test_scoped_label_listing_hides_other_scopes():
+    store = KuzuGraphStore.memory()
+    alice = GraphMemoryBackend(store, namespace=("alice",))
+    bob = GraphMemoryBackend(store, namespace=("bob",))
+
+    bob.add_graph_node("secretlabel", "n1")
+
+    labels = alice.ls("/nodes/")
+
+    assert labels.error is None
+    assert labels.entries == []
+
+
+def test_scoped_node_listing_filters_before_limit():
+    store = KuzuGraphStore.memory()
+    alice = GraphMemoryBackend(store, namespace=("alice",), max_nodes=1)
+    bob = GraphMemoryBackend(store, namespace=("bob",))
+
+    bob.add_graph_node("service", "bob-1")
+    bob.add_graph_node("service", "bob-2")
+    bob.add_graph_node("service", "bob-3")
+    alice.add_graph_node("service", "alice-1")
+
+    ids = alice.ls("/nodes/service/")
+
+    assert ids.error is None
+    assert ids.entries == [{"path": "/nodes/service/alice-1.md", "is_dir": False, "size": 0, "modified_at": ""}]
+
+
+def test_scoped_search_hides_other_scope_nodes():
+    store = KuzuGraphStore.memory()
+    alice = GraphMemoryBackend(store, namespace=("alice",))
+    bob = GraphMemoryBackend(store, namespace=("bob",))
+
+    bob.add_graph_node("service", "bob-secret", {"description": "scope-only-secret"})
+
+    result = alice.read("/search/scope-only-secret.md")
+
+    assert result.error is None
+    assert "bob-secret" not in result.file_data["content"]
+    assert "No matching graph facts found." in result.file_data["content"]
+
+
 def test_scope_metadata_is_written():
     store = KuzuGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=("alice",))

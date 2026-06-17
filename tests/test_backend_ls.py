@@ -40,6 +40,15 @@ def test_glob_matches_virtual_files():
     assert "/views/neighborhood/service/langfuse.md" in paths
 
 
+def test_glob_accepts_explicit_none_path():
+    backend = seed_backend()
+
+    result = backend.glob("**/*.md", path=None)
+
+    assert result.error is None
+    assert "/schema.md" in {entry["path"] for entry in result.matches}
+
+
 def test_grep_searches_graph_metadata():
     backend = seed_backend()
 
