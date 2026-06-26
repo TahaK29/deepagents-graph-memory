@@ -24,11 +24,10 @@ class FakeGraph:
     def __init__(self):
         self.queries = []
 
-    def get_schema_dict(self):
-        return {"nodes": [{"label": "service"}]}
-
     def query(self, query, params=None):
         self.queries.append((query, params or {}))
+        if "SHOW_TABLES" in query:
+            return [{"name": "service", "type": "NODE"}]
         if "QUERY_FTS_INDEX" in query:
             return [
                 {

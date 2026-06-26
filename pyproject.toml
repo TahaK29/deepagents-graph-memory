@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Graph-backed context scratchpad for LangChain Deep Agents."
 readme = "README.md"
 license = { text = "MIT" }
+authors = [
+    { name = "Pranav Bedi", email = "pranavbedi80@gmail.com" },
+    { name = "Taha Khan", email = "ktaha2005.net@gmail.com " }
+]
 requires-python = ">=3.11,<4.0"
 keywords = ["deepagents", "langchain", "langgraph", "context", "graph", "kuzu"]
 classifiers = [

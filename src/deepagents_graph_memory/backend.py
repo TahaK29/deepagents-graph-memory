@@ -119,9 +119,7 @@ class GraphMemoryBackend(BackendProtocol):
         try:
             scope_key = self._scope_key()
             parsed = parse_graph_path(file_path)
-            if parsed.kind == "root":
-                content = render_index()
-            elif parsed.kind == "index":
+            if parsed.kind in {"root", "index"}:
                 content = render_index()
             elif parsed.kind == "schema":
                 content = render_schema(self.store.get_schema(scope_key=scope_key))
@@ -454,8 +452,6 @@ class GraphMemoryBackend(BackendProtocol):
                 label = validate_identifier(parts[2], field="label")
                 ids = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
                 return [{"path": neighborhood_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""} for node_id in ids.items]
-        if normalized == "/search/":
-            return []
         return []
 
     def _candidate_files(self, *, scope_key: str | None) -> list[FileInfo]:

@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 
-from deepagents_graph_memory.paths import neighborhood_path, node_path
+from deepagents_graph_memory.paths import node_path
 from deepagents_graph_memory.stores import GraphEdge, GraphNode, NeighborhoodResult, SearchResult
 
 
@@ -210,26 +210,3 @@ def _truncation_note(truncated_nodes: bool, truncated_edges: bool) -> str:
         targets.append("edges")
     label = " and ".join(targets) if targets else "results"
     return f"Results truncated for {label}. Refine the query or increase the limit."
-
-
-def render_label_listing(label: str, ids: list[str], *, truncated: bool = False) -> str:
-    """Render an internal label listing page for debugging and tests.
-
-    Args:
-        label: Node label.
-        ids: Node ids.
-        truncated: Whether the listing was truncated.
-
-    Returns:
-        Markdown listing.
-    """
-    lines = [f"# Nodes: {label}", ""]
-    lines.extend(f"- [{node_id}]({node_path(label, node_id)})" for node_id in ids)
-    if truncated:
-        lines.extend(["", "Results truncated. Refine the listing or increase the limit."])
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_neighborhood_link(label: str, node_id: str) -> str:
-    """Render a markdown link to a neighborhood view."""
-    return f"[Neighborhood]({neighborhood_path(label, node_id)})"

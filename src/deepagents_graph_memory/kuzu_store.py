@@ -105,8 +105,7 @@ class KuzuGraphStore:
         self._refresh_schema()
         if not self._labels() and not self._relationships():
             return "No graph schema has been created yet."
-        schema = getattr(self.graph, "get_schema", "")
-        return schema() if callable(schema) else str(schema)
+        return self.graph.get_schema
 
     def list_labels(self, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
         """List known node labels."""
@@ -406,10 +405,6 @@ class KuzuGraphStore:
         return True
 
     def _labels(self) -> list[str]:
-        schema_getter = getattr(self.graph, "get_schema_dict", None)
-        if callable(schema_getter):
-            schema = schema_getter()
-            return sorted(str(node["label"]) for node in schema.get("nodes", []) if node.get("label") != "Chunk")
         rows = self._query("CALL SHOW_TABLES() RETURN *;", {})
         return sorted(str(row.get("name")) for row in rows if row.get("type") == "NODE")
 
@@ -418,9 +413,7 @@ class KuzuGraphStore:
         return sorted(str(row.get("name")) for row in rows if row.get("type") == "REL")
 
     def _refresh_schema(self) -> None:
-        refresh_schema = getattr(self.graph, "refresh_schema", None)
-        if callable(refresh_schema):
-            refresh_schema()
+        self.graph.refresh_schema()
 
     def _query(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         try:
