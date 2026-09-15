@@ -1,3 +1,7 @@
+# - Gives graph problems clear names so the rest of the package can handle them.
+# - Tests: test_paths.py and test_validation.py check errors for bad paths and unsafe data;
+#        test_optional_vgs_dependency.py checks the missing-Kuzu message.
+
 """Error types for graph memory."""
 
 

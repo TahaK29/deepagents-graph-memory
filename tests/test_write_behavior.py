@@ -1,3 +1,6 @@
+# - Checks that generated graph pages stay read-only.
+# - Case: trying to write or edit a page returns the read-only message.
+
 from deepagents_graph_memory.backend import READ_ONLY_ERROR, GraphMemoryBackend
 
 

@@ -1,3 +1,10 @@
+# - Lets an agent browse graph context as if it were a set of files.
+# - Also saves connected records of what happened, why, and how it turned out.
+# - Tests: test_backend_read.py and test_backend_ls.py cover reading and finding context;
+#        test_write_behavior.py checks that the file views stay read-only.
+#        test_trace.py, test_scope.py, and test_limits.py cover work history, separation, and size limits;
+#        test_create_and_clear.py checks how a fresh graph starts.
+
 """Deep Agents backend implementation for graph memory."""
 
 from __future__ import annotations

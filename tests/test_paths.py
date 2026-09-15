@@ -1,3 +1,6 @@
+# - Checks that graph file addresses make sense and stay within the graph.
+# - Cases: addresses with or without /graph/, connection and search pages, unsafe paths, and invalid names.
+
 import pytest
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError

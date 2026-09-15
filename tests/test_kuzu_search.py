@@ -1,3 +1,6 @@
+# - Checks how the Kuzu store prepares and searches text using a pretend database.
+# - Cases: using Kuzu text search when available, and including aliases and descriptions in searchable text.
+
 import importlib
 import sys
 import types

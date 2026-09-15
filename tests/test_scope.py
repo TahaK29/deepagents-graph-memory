@@ -1,3 +1,7 @@
+# - Checks that separate scopes keep their graph context to themselves.
+# - Cases: separate reads and writes even with shared item names, filtered listings and search;
+#        saving scope details and keeping imported graph documents separate.
+
 from dataclasses import dataclass, field
 from typing import Any
 

@@ -1,3 +1,6 @@
+# - Checks that the backend and real Kuzu database work together.
+# - Case: save a dependency, open its item page, and find that connection through recall.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
 

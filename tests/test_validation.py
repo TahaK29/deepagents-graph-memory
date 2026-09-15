@@ -1,3 +1,6 @@
+# - Checks that unsafe graph data gets rejected before it is saved.
+# - Cases: unsafe item labels, unsafe relationship names, and details that cannot be stored as JSON.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
 

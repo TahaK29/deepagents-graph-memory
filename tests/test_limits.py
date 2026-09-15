@@ -1,3 +1,6 @@
+# - Checks that a graph page does not show more connections than requested.
+# - Case: a small connection limit leaves out extra connections and tells the reader.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
 

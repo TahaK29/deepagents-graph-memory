@@ -1,3 +1,6 @@
+# - Checks that a fresh backend starts with a temporary Kuzu graph.
+# - Cases: the default store, and keeping disk-storage and reset options out of the public API.
+
 from inspect import signature
 
 from deepagents_graph_memory.backend import GraphMemoryBackend

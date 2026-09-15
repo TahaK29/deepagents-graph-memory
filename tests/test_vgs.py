@@ -1,3 +1,7 @@
+# - Checks the Deep Agents setup for working with graph context.
+# - Cases: excluding the usual file tools, keeping the base and execute instructions, replacing file guidance;
+#        turning graph guidance off and registering the setup for a model.
+
 from deepagents.middleware._utils import append_to_system_message
 from deepagents.middleware.filesystem import EXECUTION_SYSTEM_PROMPT, FILESYSTEM_SYSTEM_PROMPT, FilesystemMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse

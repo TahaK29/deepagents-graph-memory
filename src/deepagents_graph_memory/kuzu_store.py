@@ -1,3 +1,8 @@
+# - Keeps graph items and their connections in Kuzu, and finds them again when asked.
+# - Keeps each workspace's context separate when a scope is set.
+# - Tests: test_kuzu_integration.py checks saving and reading a connection;
+#        test_kuzu_search.py checks search, and test_scope.py checks separation.
+
 """Kuzu adapter for graph memory."""
 
 from __future__ import annotations

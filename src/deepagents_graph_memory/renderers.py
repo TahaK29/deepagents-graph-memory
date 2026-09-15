@@ -1,3 +1,7 @@
+# - Turns graph data into readable pages, with links between related items.
+# - Tests: test_renderers.py checks pages for graph structure, items, connections, and search results;
+#        test_backend_read.py checks those pages through the agent-facing file view.
+
 """Markdown renderers for virtual graph files."""
 
 from __future__ import annotations

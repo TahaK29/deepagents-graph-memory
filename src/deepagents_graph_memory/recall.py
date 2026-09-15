@@ -1,3 +1,8 @@
+# - Finds context for a question, then follows useful connections to fill in the story.
+# - Stops when the next connection is unhelpful or the answer reaches its size limit.
+# - Tests: test_recall.py covers finding matches, following connections, and stopping;
+#        test_trace.py checks bringing back the reasons and outcomes behind past work.
+
 """Adaptive graph memory recall."""
 
 from __future__ import annotations

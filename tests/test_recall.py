@@ -1,3 +1,7 @@
+# - Checks that a question brings back useful, connected graph context.
+# - Cases: matching items or relationships, aliases, starting from a known path, and following several connections;
+#        stopping at relevance or size limits, keeping scopes separate, and offering recall as a tool.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools

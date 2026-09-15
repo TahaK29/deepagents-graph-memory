@@ -1,3 +1,6 @@
+# - Checks the graph tools an agent receives and how it uses them to save context.
+# - Cases: adding items and connections when enabled, and offering recall and work-history tools by default.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.tools import graph_memory_tools
 

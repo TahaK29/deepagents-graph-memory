@@ -1,3 +1,7 @@
+# - Checks what an agent sees when it opens a graph file.
+# - Cases: overview, graph structure, individual items, nearby connections, and search results;
+#        missing items, reading part of a page, and downloading a view.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
 

@@ -1,3 +1,8 @@
+# - Gives the agent callable tools to find context and record what happened during its work.
+# - Can also offer tools for adding individual graph items and connections.
+# - Tests: test_tools.py checks which tools are available and that writes work;
+#        test_trace.py and test_recall.py check the history and lookup tools.
+
 """Safe graph memory tools."""
 
 from __future__ import annotations

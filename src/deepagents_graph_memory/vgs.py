@@ -1,3 +1,7 @@
+# - Sets up Deep Agents to work through graph tools and explains how to use that context.
+# - Removes the usual file-tool guidance while keeping other agent instructions.
+# - Tests: test_vgs.py checks tool choices, prompt changes, and registering this setup.
+
 """VGS harness-profile helpers for Deep Agents."""
 
 from __future__ import annotations

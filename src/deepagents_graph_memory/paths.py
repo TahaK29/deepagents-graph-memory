@@ -1,3 +1,6 @@
+# - Makes sense of graph file addresses and rejects unsafe names or paths.
+# - Tests: test_paths.py covers valid addresses, bad names, and attempts to escape the graph folder.
+
 """Virtual graph path parsing and validation."""
 
 from __future__ import annotations

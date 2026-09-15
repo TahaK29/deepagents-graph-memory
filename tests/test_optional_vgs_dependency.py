@@ -1,3 +1,6 @@
+# - Checks which imports need Kuzu and what happens when it is missing.
+# - Cases: Deep Agents alone can load without Kuzu; this graph package and its backend require it.
+
 import subprocess
 import sys
 import textwrap

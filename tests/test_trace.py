@@ -1,3 +1,7 @@
+# - Checks that the graph remembers what happened, why, what was done, and the result.
+# - Cases: saving and reading that story, optional details, multiline text, and finding related artifacts;
+#        following the story's connections, looking it up from an artifact, and recording it through a tool.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.tools import graph_memory_tools
 

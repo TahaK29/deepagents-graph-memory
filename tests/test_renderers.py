@@ -1,3 +1,6 @@
+# - Checks that graph data turns into understandable text pages.
+# - Cases: graph structure, grouped connections, search results, and a note when some connections are left out.
+
 from deepagents_graph_memory.renderers import render_neighborhood, render_node, render_schema, render_search
 from deepagents_graph_memory.stores import GraphEdge, GraphNode, NeighborhoodResult, SearchItem, SearchResult
 

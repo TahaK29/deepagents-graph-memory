@@ -1,3 +1,6 @@
+# - Checks that an agent can browse and find the graph's virtual files.
+# - Cases: listing folders and items, matching file names, and searching saved details.
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
 
