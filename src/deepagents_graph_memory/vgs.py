@@ -19,9 +19,9 @@ VFS_TOOL_NAMES = frozenset({"ls", "read_file", "write_file", "edit_file", "glob"
 
 VGS_SYSTEM_PROMPT_SUFFIX = """## Virtual Graph System (VGS)
 
-Graph context is enabled. The graph is the source of truth for structured workflow context:
+Graph context is enabled. The graph is the source of truth for recorded structured workflow context:
 situations, rationales, actions, outcomes, artifacts, failures, evidence, decisions,
-dependencies, and provenance.
+dependencies, and provenance. Its contents are recorded claims and evidence, not verified truth.
 
 In VGS mode, do not assume the default Deep Agents filesystem tools are available.
 
@@ -38,6 +38,12 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
 - Do not chase the graph to completeness. Use recalled facts to guide the next action,
   then verify current external state with the available primary tools when the answer
   depends on live files, tests, services, or command output.
+- Compare findings linked to the same subject before a decision depends on them. Check
+  revisions, inputs, environments, and observation times to distinguish state changes
+  from competing explanations. If material disagreement remains, pause that dependent
+  decision and verify the disputed point with a targeted independent check.
+- Truncated related findings are not evidence that the visible claims agree. Fetch or
+  narrow context before treating them as a resolved answer.
 
 ## Writing Graph Context
 
@@ -46,6 +52,15 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
 - Do not write every thought. Prefer facts that will help resume work, avoid repeated
   failed attempts, explain a decision, or connect evidence to an outcome.
 - Record failures and dead ends with their outcomes so future work can avoid repeating them.
+- For related findings, supply a stable, narrow `subject` within the project namespace.
+  Supply `observed_at` only from known evidence or tool output; do not guess from the
+  recording clock. Use `finding_type="state"` for mutable observed state and
+  `"interpretation"` for explanations. Use `supersedes` only for an evidenced newer
+  mutable state. Arrival order and elapsed time alone never supersede a finding;
+  preserve parallel contenders until evidence resolves them.
+- After checking competing claims, record an evidenced resolution with `resolves`
+  pointing to at least two same-subject traces. Explain the review in the rationale
+  and evidence. This records a judgment; it does not make the graph verify truth.
 - Do not store ordinary user preferences, profile facts, or unrelated notes in the graph.
 - Generated `/graph/...` markdown paths are read-only views over graph data, not storage locations to edit.
 - If low-level graph write tools are exposed, use them only with clear labels, relationship
@@ -92,11 +107,7 @@ def vgs_harness_profile(*, system_prompt_suffix: str | None = VGS_SYSTEM_PROMPT_
     Returns:
         Harness profile that excludes Deep Agents filesystem tools.
     """
-    extra_middleware = (
-        ()
-        if system_prompt_suffix is None
-        else (_VGSSystemPromptMiddleware(system_prompt_suffix),)
-    )
+    extra_middleware = () if system_prompt_suffix is None else (_VGSSystemPromptMiddleware(system_prompt_suffix),)
     return HarnessProfile(excluded_tools=VFS_TOOL_NAMES, extra_middleware=extra_middleware)
 
 

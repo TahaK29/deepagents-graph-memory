@@ -117,6 +117,48 @@ lion is dangerous --JUSTIFIED--> sheep ran away
 sheep ran away --PRODUCED--> sheep survived
 ```
 
+Related findings can share a narrow `subject` within a namespace. `observed_at` is
+the time of the observation, while server-generated `recorded_at` is when the trace
+was saved. A caller may explicitly supersede an earlier **state** finding only
+with evidence and a strictly newer observation. The old trace and parallel newer
+findings remain in the graph; explanations are never superseded by this rule.
+For a reviewed disagreement between two or more same-subject traces, an evidenced
+resolution trace can use `resolves=[...]`. Recall places that resolution ahead of
+the reviewed originals and links them; this records a caller judgment, not a
+database check of its truth.
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+from deepagents_graph_memory.errors import GraphMemoryValidationError
+
+graph = GraphMemoryBackend.create()
+common = dict(subject="tests/test_parser.py::test_empty@linux", finding_type="state")
+graph.record_graph_trace(
+    trace_id="failed", situation="parser test at revision a1", rationale="pytest exit 1",
+    action="ran pytest", outcome="failed", evidence=["pytest output at a1: failed"],
+    observed_at="2026-09-19T10:00:00Z", **common,
+)
+graph.record_graph_trace(
+    trace_id="passed", situation="parser test at revision b2", rationale="pytest exit 0",
+    action="reran pytest", outcome="passed", evidence=["pytest output at b2: passed"],
+    observed_at="2026-09-19T11:00:00Z", supersedes=["failed"], **common,
+)
+try:
+    graph.record_graph_trace(
+        trace_id="delayed", situation="late report from revision a1", rationale="old output",
+        action="reported result", outcome="failed", evidence=["pytest output at a1: failed"],
+        observed_at="2026-09-19T09:30:00Z", supersedes=["passed"], **common,
+    )
+except GraphMemoryValidationError:
+    pass  # An older observation cannot supersede the newer one.
+print(graph.recall_graph_memory("failed", anchors=["/graph/nodes/Trace/failed.md"]))
+```
+
+The caller supplies the subject and supersession assertion. Graph storage does not
+detect contradictions, verify the evidence, or gate external actions. Recall brings
+same-subject findings together when budgets permit and flags incomplete context;
+the reading agent must compare and verify material disagreements before deciding.
+
 Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
 
 ### Graph Recall

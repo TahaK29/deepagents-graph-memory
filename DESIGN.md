@@ -209,6 +209,19 @@ provenance belongs on Trace/component nodes and their links. Namespace scopes
 data, not authorization; schema remains database-wide. Concurrent throughput is
 limited by the single store lock, and separate processes do not share the graph.
 
+For a stable, narrow question within a namespace, a Trace can link to a Subject.
+Its `observed_at` records a supplied, timezone-aware observation time; `recorded_at`
+is generated when saved. Explicit `SUPERSEDES` links require a state finding,
+evidence, and a strictly newer observation. They preserve earlier traces and
+parallel successors. Same-subject recall surfaces competing findings or warns
+when budgets omit them. The caller supplies these semantic assertions; neither
+storage nor recall automatically verifies truth, resolves contradictions, or
+blocks external actions. The in-memory store remains non-persistent.
+An explicit evidence-backed resolution Trace can `RESOLVES` two or more
+same-subject Trace IDs. Recall marks those originals as reviewed and keeps
+their evidence accessible. No automatic date threshold or physical deletion
+removes historical claims.
+
 ## What Agents Should Write
 
 Agents should not write every thought. They should write durable, queryable facts

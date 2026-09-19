@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.tools import tool
 
@@ -119,6 +119,11 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
         agent_id: str | None = None,
         subagent_id: str | None = None,
         task_id: str | None = None,
+        subject: str | None = None,
+        observed_at: str | None = None,
+        supersedes: list[str] | None = None,
+        resolves: list[str] | None = None,
+        finding_type: Literal["state", "interpretation"] = "interpretation",
     ) -> str:
         """Record a Situation/Rationale/Action/Outcome trace for long-running agent work."""
         try:
@@ -133,6 +138,11 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
                 agent_id=agent_id,
                 subagent_id=subagent_id,
                 task_id=task_id,
+                subject=subject,
+                observed_at=observed_at,
+                supersedes=supersedes,
+                resolves=resolves,
+                finding_type=finding_type,
                 source="graph_trace_tool",
             )
         except GraphMemoryError as exc:

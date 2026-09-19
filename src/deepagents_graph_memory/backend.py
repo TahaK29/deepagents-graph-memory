@@ -13,7 +13,7 @@ import fnmatch
 import hashlib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from deepagents.backends.protocol import (
@@ -43,7 +43,7 @@ from deepagents_graph_memory.paths import (
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
 from deepagents_graph_memory.renderers import render_index, render_node, render_schema, render_search
-from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata
+from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata, utc_now
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
 TRACE_TEXT_ALLOWED_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
@@ -251,6 +251,11 @@ class GraphMemoryBackend(BackendProtocol):
         agent_id: str | None = None,
         subagent_id: str | None = None,
         task_id: str | None = None,
+        subject: str | None = None,
+        observed_at: str | None = None,
+        supersedes: list[str] | None = None,
+        resolves: list[str] | None = None,
+        finding_type: Literal["state", "interpretation"] = "interpretation",
         **metadata: Any,
     ) -> str:
         """Record a Situation/Rationale/Action/Outcome reasoning trace.
@@ -267,6 +272,11 @@ class GraphMemoryBackend(BackendProtocol):
             agent_id: Optional agent id.
             subagent_id: Optional subagent id.
             task_id: Optional task id.
+            subject: Stable question about one entity and environment within the namespace.
+            observed_at: Time of observation, if known, as a timezone-aware ISO 8601 value.
+            supersedes: Earlier state trace IDs this evidenced observation replaces.
+            resolves: At least two same-subject traces reviewed by an evidenced resolution.
+            finding_type: Whether the finding reports mutable state or an interpretation.
             **metadata: Additional JSON-serializable metadata written to trace nodes and edges.
 
         Returns:
@@ -294,6 +304,26 @@ class GraphMemoryBackend(BackendProtocol):
             raise GraphMemoryValidationError(msg)
         artifacts = [_validate_trace_text(value, field="artifact") for value in artifacts or []]
         evidence = [_validate_trace_text(value, field="evidence") for value in evidence or []]
+        if subject is not None:
+            subject = _validate_trace_text(subject, field="subject")
+            if len(subject) > 512:
+                raise GraphMemoryValidationError("subject must be at most 512 characters.")
+        if not isinstance(finding_type, str) or finding_type not in {"state", "interpretation"}:
+            raise GraphMemoryValidationError("finding_type must be state or interpretation.")
+        observed_at = _normalize_observed_at(observed_at) if observed_at is not None else None
+        supersedes_supplied = supersedes is not None
+        if supersedes_supplied and (not isinstance(supersedes, list) or any(not isinstance(item, str) for item in supersedes)):
+            raise GraphMemoryValidationError("supersedes must be a list of trace IDs.")
+        supersedes = list(dict.fromkeys(validate_node_id(item) for item in supersedes or []))
+        if supersedes and (subject is None or finding_type != "state" or observed_at is None or not evidence):
+            raise GraphMemoryValidationError("supersedes requires a subject, state finding, observed_at, and evidence.")
+        resolves_supplied = resolves is not None
+        if resolves_supplied and (not isinstance(resolves, list) or any(not isinstance(item, str) for item in resolves)):
+            raise GraphMemoryValidationError("resolves must be a list of trace IDs.")
+        resolves = list(dict.fromkeys(validate_node_id(item) for item in resolves or []))
+        if resolves and (subject is None or not evidence or len(resolves) < 2 or supersedes):
+            raise GraphMemoryValidationError("resolves requires a subject, evidence, at least two distinct traces, and no supersedes.")
+        recorded_at = utc_now()
         node_specs = [
             ("Situation", validate_node_id(f"{trace_id}-situation"), situation),
             ("Rationale", validate_node_id(f"{trace_id}-rationale"), rationale),
@@ -309,6 +339,8 @@ class GraphMemoryBackend(BackendProtocol):
             "trace_id": trace_id,
             **trace_context,
         }
+        if any(key in metadata for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "evidence")):
+            raise GraphMemoryValidationError("subject, finding, time, supersession, and evidence metadata must use their explicit arguments.")
         for key, value in reserved.items():
             if key in metadata and metadata[key] != value:
                 msg = f"trace metadata cannot override {key}."
@@ -325,17 +357,45 @@ class GraphMemoryBackend(BackendProtocol):
                 "rationale": rationale,
                 "action": action,
                 "outcome": outcome,
+                "recorded_at": recorded_at,
+                **({"subject": subject, "finding_type": finding_type, "evidence": evidence} if subject is not None else {}),
+                **({"observed_at": observed_at} if observed_at is not None else {}),
                 **trace_context,
             },
             scope_key=scope_key,
             metadata={**metadata, "source": metadata.get("source", "graph_trace")},
         )
         with self.store.transaction():
+            for reviewed_id in resolves:
+                reviewed = self.store.get_node("Trace", reviewed_id, scope_key=scope_key)
+                if reviewed is None or reviewed.properties.get("subject") != subject:
+                    raise GraphMemoryValidationError(f"resolved trace {reviewed_id} must exist for the same subject.")
+            for old_id in supersedes:
+                old = self.store.get_node("Trace", old_id, scope_key=scope_key)
+                if old is None or old.properties.get("subject") != subject or old.properties.get("finding_type") != "state":
+                    raise GraphMemoryValidationError(f"superseded trace {old_id} must be an existing state finding for the same subject.")
+                old_time = old.properties.get("observed_at")
+                if not isinstance(old_time, str) or _normalize_observed_at(old_time) >= observed_at:
+                    raise GraphMemoryValidationError(f"superseded trace {old_id} must have an earlier observed_at.")
             for label, node_id in [("Trace", trace_id), *((label, node_id) for label, node_id, _text in node_specs)]:
                 if self.store.get_node(label, node_id, scope_key=scope_key) is not None:
                     msg = f"trace node {label}/{node_id} already exists."
                     raise GraphMemoryValidationError(msg)
             self.store.add_node("Trace", trace_id, properties=trace_metadata, scope_key=scope_key)
+            if subject is not None:
+                subject_id = _value_id("subject", subject)
+                existing_subject = self.store.get_node("Subject", subject_id, scope_key=scope_key)
+                if existing_subject is not None and existing_subject.properties.get("value") != subject:
+                    raise GraphMemoryValidationError(f"Subject/{subject_id} has a conflicting value.")
+                if existing_subject is None:
+                    self.store.add_node(
+                        "Subject", subject_id, properties=merge_metadata({"value": subject}, scope_key=scope_key), scope_key=scope_key
+                    )
+                self._add_trace_edge("Trace", trace_id, "ABOUT", "Subject", subject_id, scope_key=scope_key, metadata=edge_metadata)
+            for old_id in supersedes:
+                self._add_trace_edge("Trace", trace_id, "SUPERSEDES", "Trace", old_id, scope_key=scope_key, metadata=edge_metadata)
+            for reviewed_id in resolves:
+                self._add_trace_edge("Trace", trace_id, "RESOLVES", "Trace", reviewed_id, scope_key=scope_key, metadata=edge_metadata)
 
             for label, node_id, text in node_specs:
                 self.store.add_node(
@@ -631,6 +691,21 @@ def _validate_trace_text(value: str, *, field: str) -> str:
         msg = f"{field} must not contain NUL bytes or unsafe control characters."
         raise GraphMemoryValidationError(msg)
     return normalized
+
+
+def _normalize_observed_at(value: str) -> str:
+    if not isinstance(value, str):
+        raise GraphMemoryValidationError("observed_at must be a timezone-aware ISO 8601 string.")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise GraphMemoryValidationError("observed_at must be a timezone-aware ISO 8601 string.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise GraphMemoryValidationError("observed_at must be a timezone-aware ISO 8601 string.")
+    try:
+        return parsed.astimezone(UTC).isoformat()
+    except OverflowError as exc:
+        raise GraphMemoryValidationError("observed_at is outside the supported datetime range.") from exc
 
 
 def _has_unsafe_control_char(value: str) -> bool:
