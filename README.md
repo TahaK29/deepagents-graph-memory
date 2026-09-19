@@ -164,6 +164,26 @@ visible when the budget fits them. A partial history is labeled incomplete, and
 an omitted anchor gets a direct path to inspect. This currently scans one subject's
 traces during recall, so very large subjects may cost more to read.
 
+Use `operation_id` when retrying the same trace write. Replaying the same request
+returns its original trace ID without changing the graph; changing any request
+field under that ID raises `GraphMemoryValidationError`. A new execution needs a
+new ID, even if its text is identical. The identity is scoped to the backend
+namespace, and `operation_id` cannot be combined with `trace_id`.
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+
+graph = GraphMemoryBackend.create()
+payload = dict(situation="network timeout", rationale="probe failed", action="checked network", outcome="unavailable")
+first = graph.record_graph_trace(operation_id="network-probe-7", **payload)
+assert graph.record_graph_trace(operation_id="network-probe-7", **payload) == first
+assert graph.record_graph_trace(operation_id="network-probe-8", **payload) != first
+```
+
+The `record_graph_trace` tool uses its injected tool-call ID and runtime thread ID
+for retries when no explicit `operation_id` is supplied. Direct calls without
+either ID continue to append traces.
+
 Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
 
 ### Graph Recall

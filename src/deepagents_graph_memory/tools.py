@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
@@ -124,9 +126,14 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
         supersedes: list[str] | None = None,
         resolves: list[str] | None = None,
         finding_type: Literal["state", "interpretation"] = "interpretation",
+        operation_id: str | None = None,
+        runtime: ToolRuntime = None,  # This installed ToolNode injects ToolRuntime, but not ToolRuntime | None.
     ) -> str:
         """Record a Situation/Rationale/Action/Outcome trace for long-running agent work."""
         try:
+            if operation_id is None and runtime is not None and runtime.tool_call_id:
+                thread_id = runtime.config.get("configurable", {}).get("thread_id")
+                operation_id = json.dumps(["tool-call", thread_id, runtime.tool_call_id], separators=(",", ":"))
             trace_id = graph_backend.record_graph_trace(
                 situation=situation,
                 rationale=rationale,
@@ -143,6 +150,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
                 supersedes=supersedes,
                 resolves=resolves,
                 finding_type=finding_type,
+                operation_id=operation_id,
                 source="graph_trace_tool",
             )
         except GraphMemoryError as exc:

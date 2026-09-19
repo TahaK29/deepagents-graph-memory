@@ -94,6 +94,106 @@ def test_duplicate_and_component_collision_preserve_existing_graph():
     assert store.get_node("Outcome", "collision-outcome", scope_key="one").properties["prior"] is True
 
 
+def test_operation_retry_preserves_original_graph_and_rejects_changed_request():
+    backend = GraphMemoryBackend.create()
+    payload = dict(situation=" timeout ", rationale="probe", action="checked network", outcome="failed", evidence=["log-b", "log-a"])
+    first = backend.record_graph_trace(operation_id="probe-7", **payload)
+    node = backend.store.get_node("Trace", first)
+    edges = backend.store.get_neighbors("Trace", first, depth=1, max_nodes=20, max_edges=20)
+
+    assert backend.record_graph_trace(operation_id="probe-7", **{**payload, "situation": "timeout", "evidence": ["log-a", "log-b"]}) == first
+    assert backend.store.get_node("Trace", first) == node
+    assert backend.store.get_neighbors("Trace", first, depth=1, max_nodes=20, max_edges=20) == edges
+    with pytest.raises(GraphMemoryValidationError, match="operation_id"):
+        backend.record_graph_trace(operation_id="probe-7", **{**payload, "outcome": "passed"})
+    with pytest.raises(GraphMemoryValidationError, match="operation_id"):
+        backend.record_graph_trace(operation_id="probe-7", **{**payload, "evidence": ["log-c"]})
+    assert backend.store.get_node("Trace", first) == node
+    assert backend.record_graph_trace(operation_id="probe-8", **payload) != first
+    assert backend.record_graph_trace(**payload) != backend.record_graph_trace(**payload)
+
+
+def test_operation_identity_is_scoped_and_normalizes_observation_time():
+    store = KuzuGraphStore.memory()
+    one = GraphMemoryBackend(store, namespace="one")
+    two = GraphMemoryBackend(store, namespace="two")
+    payload = dict(situation="probe", rationale="output", action="ran test", outcome="failed", subject="parser@linux", finding_type="state")
+    first = one.record_graph_trace(operation_id="run-1", observed_at="2026-09-19T10:00:00-04:00", **payload)
+    assert one.record_graph_trace(operation_id="run-1", observed_at="2026-09-19T14:00:00Z", **payload) == first
+    assert two.record_graph_trace(operation_id="run-1", observed_at="2026-09-19T14:00:00Z", **payload) == first
+    assert store.get_node("Trace", first, scope_key="one") is not None
+    assert store.get_node("Trace", first, scope_key="two") is not None
+    with pytest.raises(GraphMemoryValidationError, match="trace_id"):
+        one.record_graph_trace(operation_id="run-2", trace_id="manual", **payload)
+    with pytest.raises(GraphMemoryValidationError, match="fingerprint"):
+        one.record_graph_trace(operation_id="run-2", request_fingerprint="forged", **payload)
+
+
+def test_concurrent_operation_retries_write_one_trace():
+    backend = GraphMemoryBackend.create()
+    start = Barrier(4)
+
+    def retry():
+        start.wait()
+        return backend.record_graph_trace(operation_id="same", situation="one", rationale="two", action="three", outcome="four")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        ids = list(pool.map(lambda _: retry(), range(4)))
+    assert len(set(ids)) == 1
+    assert backend.store.list_node_ids("Trace").items == ids[:1]
+
+
+def test_failed_operation_does_not_reserve_identity():
+    backend = GraphMemoryBackend.create()
+    with pytest.raises(GraphMemoryValidationError, match="superseded trace"):
+        backend.record_graph_trace(
+            operation_id="retry",
+            situation="one",
+            rationale="two",
+            action="three",
+            outcome="four",
+            subject="parser@linux",
+            finding_type="state",
+            evidence=["log"],
+            observed_at="2026-09-19T10:00:00Z",
+            supersedes=["missing"],
+        )
+    assert backend.record_graph_trace(operation_id="retry", situation="one", rationale="two", action="three", outcome="four")
+
+
+def test_operation_fingerprint_includes_caller_metadata():
+    backend = GraphMemoryBackend.create()
+    payload = dict(operation_id="source-check", situation="one", rationale="two", action="three", outcome="four")
+    first = backend.record_graph_trace(**payload, source="worker-a", custom={"b": 2, "a": 1})
+    assert backend.record_graph_trace(**payload, source="worker-a", custom={"a": 1, "b": 2}) == first
+    with pytest.raises(GraphMemoryValidationError, match="operation_id"):
+        backend.record_graph_trace(**payload, source="worker-b", custom={"a": 1, "b": 2})
+    other = {**payload, "operation_id": "default-source"}
+    backend.record_graph_trace(**other)
+    with pytest.raises(GraphMemoryValidationError, match="operation_id"):
+        backend.record_graph_trace(**other, source="graph_trace")
+
+
+def test_late_failure_rolls_back_operation_identity(monkeypatch):
+    store = KuzuGraphStore.memory()
+    backend = GraphMemoryBackend(store)
+    original_query = store.graph.query
+
+    def fail_once(query, params=None):
+        if "MERGE (source)-[rel:PRODUCED]" in query:
+            monkeypatch.setattr(store.graph, "query", original_query)
+            raise RuntimeError("injected write failure")
+        return original_query(query, params)
+
+    monkeypatch.setattr(store.graph, "query", fail_once)
+    payload = dict(operation_id="failed-write", situation="one", rationale="two", action="three", outcome="four")
+    with pytest.raises(GraphMemoryConfigurationError, match="injected write failure"):
+        backend.record_graph_trace(**payload)
+    assert store.list_node_ids("Trace").items == []
+    trace_id = backend.record_graph_trace(**payload)
+    assert backend.record_graph_trace(**payload) == trace_id
+
+
 def test_late_database_failure_rolls_back_trace_and_connection_recovers(monkeypatch):
     store = KuzuGraphStore.memory()
     backend = GraphMemoryBackend(store)

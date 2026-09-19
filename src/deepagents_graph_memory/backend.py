@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -43,7 +44,7 @@ from deepagents_graph_memory.paths import (
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
 from deepagents_graph_memory.renderers import render_index, render_node, render_schema, render_search
-from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata, utc_now
+from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata, utc_now, validate_properties
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
 TRACE_TEXT_ALLOWED_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
@@ -245,6 +246,7 @@ class GraphMemoryBackend(BackendProtocol):
         action: str,
         outcome: str,
         trace_id: str | None = None,
+        operation_id: str | None = None,
         artifacts: Sequence[str] | None = None,
         evidence: Sequence[str] | None = None,
         run_id: str | None = None,
@@ -266,6 +268,7 @@ class GraphMemoryBackend(BackendProtocol):
             action: What the agent did.
             outcome: What happened after the action.
             trace_id: Optional caller-provided trace id.
+            operation_id: Optional stable identity reused only for retrying this exact request.
             artifacts: Optional files or artifacts involved in the action.
             evidence: Optional evidence supporting the rationale or outcome.
             run_id: Optional run scope id.
@@ -282,6 +285,11 @@ class GraphMemoryBackend(BackendProtocol):
         Returns:
             The trace id used for the recorded graph.
         """
+        if operation_id is not None:
+            operation_id = _validate_trace_text(operation_id, field="operation_id")
+            if trace_id is not None:
+                raise GraphMemoryValidationError("trace_id and operation_id cannot both be supplied.")
+            trace_id = _value_id("trace", operation_id)
         trace_id = validate_node_id(_new_trace_id() if trace_id is None else trace_id)
         scope_key = self._scope_key()
         trace_context = _without_none(
@@ -339,6 +347,8 @@ class GraphMemoryBackend(BackendProtocol):
             "trace_id": trace_id,
             **trace_context,
         }
+        if any(key in metadata for key in ("operation_id", "request_fingerprint")):
+            raise GraphMemoryValidationError("operation_id and request_fingerprint are reserved trace metadata.")
         if any(key in metadata for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "evidence")):
             raise GraphMemoryValidationError("subject, finding, time, supersession, and evidence metadata must use their explicit arguments.")
         for key, value in reserved.items():
@@ -348,6 +358,27 @@ class GraphMemoryBackend(BackendProtocol):
         if "text" in metadata or any(key in metadata for key in ("run_id", "agent_id", "subagent_id", "task_id") if key not in trace_context):
             msg = "trace text and identity metadata must use their explicit arguments."
             raise GraphMemoryValidationError(msg)
+        request_fingerprint = None
+        if operation_id is not None:
+            request = {
+                "situation": situation,
+                "rationale": rationale,
+                "action": action,
+                "outcome": outcome,
+                "artifacts": sorted(set(artifacts)),
+                "evidence": sorted(set(evidence)),
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "subagent_id": subagent_id,
+                "task_id": task_id,
+                "subject": subject,
+                "observed_at": observed_at,
+                "supersedes": sorted(supersedes),
+                "resolves": sorted(resolves),
+                "finding_type": finding_type,
+                "metadata": validate_properties(metadata),
+            }
+            request_fingerprint = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
         edge_metadata = {**metadata, **trace_context, "trace_id": trace_id}
         shared_metadata = {key: metadata[key] for key in ("source", "created_by") if key in metadata}
         trace_metadata = merge_metadata(
@@ -358,6 +389,7 @@ class GraphMemoryBackend(BackendProtocol):
                 "action": action,
                 "outcome": outcome,
                 "recorded_at": recorded_at,
+                **({"operation_id": operation_id, "request_fingerprint": request_fingerprint} if operation_id is not None else {}),
                 **({"subject": subject, "finding_type": finding_type, "evidence": evidence} if subject is not None else {}),
                 **({"observed_at": observed_at} if observed_at is not None else {}),
                 **trace_context,
@@ -366,6 +398,15 @@ class GraphMemoryBackend(BackendProtocol):
             metadata={**metadata, "source": metadata.get("source", "graph_trace")},
         )
         with self.store.transaction():
+            if operation_id is not None:
+                existing = self.store.get_node("Trace", trace_id, scope_key=scope_key)
+                if existing is not None:
+                    if (
+                        existing.properties.get("operation_id") == operation_id
+                        and existing.properties.get("request_fingerprint") == request_fingerprint
+                    ):
+                        return trace_id
+                    raise GraphMemoryValidationError(f"operation_id {operation_id!r} was already used with a different request.")
             for reviewed_id in resolves:
                 reviewed = self.store.get_node("Trace", reviewed_id, scope_key=scope_key)
                 if reviewed is None or reviewed.properties.get("subject") != subject:
