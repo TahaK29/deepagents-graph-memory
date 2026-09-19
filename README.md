@@ -151,13 +151,18 @@ try:
     )
 except GraphMemoryValidationError:
     pass  # An older observation cannot supersede the newer one.
-print(graph.recall_graph_memory("failed", anchors=["/graph/nodes/Trace/failed.md"]))
+print(graph.recall_graph_memory("failed", anchors=["/graph/nodes/Trace/failed.md"], max_nodes=2))
 ```
 
 The caller supplies the subject and supersession assertion. Graph storage does not
 detect contradictions, verify the evidence, or gate external actions. Recall brings
 same-subject findings together when budgets permit and flags incomplete context;
 the reading agent must compare and verify material disagreements before deciding.
+It ranks a single subject's terminal findings and resolutions before applying the
+node limit, using observation time for order when present. Competing branches stay
+visible when the budget fits them. A partial history is labeled incomplete, and
+an omitted anchor gets a direct path to inspect. This currently scans one subject's
+traces during recall, so very large subjects may cost more to read.
 
 Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
 

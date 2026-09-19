@@ -141,6 +141,9 @@ class GraphStoreAdapter(Protocol):
     def list_node_ids(self, label: str, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
         """List ids for a node label."""
 
+    def list_subject_trace_ids(self, subject_id: str, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
+        """List subject traces with current findings first."""
+
     def get_node(self, label: str, node_id: str, *, scope_key: str | None = None) -> GraphNode | None:
         """Return a single node."""
 
@@ -185,6 +188,32 @@ class GraphStoreAdapter(Protocol):
 def utc_now() -> str:
     """Return the current UTC time in ISO 8601 format."""
     return datetime.now(UTC).isoformat()
+
+
+def finding_observed_timestamp(node: GraphNode) -> float | None:
+    """Return an aware observation's timestamp, or unknown for missing or invalid time."""
+    value = node.properties.get("observed_at")
+    try:
+        observed = datetime.fromisoformat(value) if isinstance(value, str) else None
+        return observed.timestamp() if observed is not None and observed.tzinfo is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def valid_finding_link(newer: GraphNode, older: GraphNode, relationship: str, *, reviewed_count: int = 0) -> bool:
+    """Check whether a finding update or resolution has valid recorded semantics."""
+    if newer.properties.get("subject") != older.properties.get("subject") or not newer.properties.get("evidence"):
+        return False
+    if relationship == "RESOLVES":
+        return reviewed_count >= 2
+    if relationship != "SUPERSEDES" or newer.properties.get("finding_type") != "state" or older.properties.get("finding_type") != "state":
+        return False
+    try:
+        new_time = datetime.fromisoformat(newer.properties["observed_at"])
+        old_time = datetime.fromisoformat(older.properties["observed_at"])
+        return new_time.tzinfo is not None and old_time.tzinfo is not None and new_time > old_time
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def validate_properties(properties: Mapping[str, Any] | None) -> Properties:

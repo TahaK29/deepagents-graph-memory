@@ -24,9 +24,11 @@ from deepagents_graph_memory.stores import (
     Properties,
     SearchItem,
     SearchResult,
+    finding_observed_timestamp,
     lexical_search_score,
     node_search_text,
     utc_now,
+    valid_finding_link,
     validate_properties,
 )
 
@@ -204,6 +206,47 @@ class KuzuGraphStore:
         )
         ids = [str(row["id"]) for row in rows if row.get("id") is not None]
         return LimitedResult(items=ids[:limit], truncated=len(ids) > limit)
+
+    @_locked
+    def list_subject_trace_ids(self, subject_id: str, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
+        """Rank one subject's findings before applying the output limit."""
+        validate_node_id(subject_id)
+        relationships = set(self._relationships())
+        if "Subject" not in self._labels() or "Trace" not in self._labels() or "ABOUT" not in relationships:
+            return LimitedResult(items=[])
+        rows = self._query(
+            "MATCH (t:Trace)-[:ABOUT]->(s:Subject {pk: $pk}) RETURN t",
+            {"pk": _node_pk("Subject", subject_id, scope_key)},
+        )
+        traces = {node.id: node for row in rows if (node := _coerce_node(row.get("t"), default_label="Trace", default_id="")).id}
+        predecessors: set[str] = set()
+        # ponytail: sort one subject in Python; use indexed ranking if subject histories grow large enough to measure.
+        for relationship in ("SUPERSEDES", "RESOLVES"):
+            if relationship not in relationships:
+                continue
+            links = self._query(
+                f"MATCH (a:Trace)-[:ABOUT]->(s:Subject {{pk: $pk}}) MATCH (a)-[:{relationship}]->(b:Trace) RETURN a, b",
+                {"pk": _node_pk("Subject", subject_id, scope_key)},
+            )
+            targets_by_source: dict[str, set[str]] = {}
+            for row in links:
+                source_id = str(row["a"]["id"])
+                target_id = str(row["b"]["id"])
+                source = traces.get(source_id)
+                target = traces.get(target_id)
+                if source is not None and target is not None and source.properties.get("subject") == target.properties.get("subject"):
+                    targets_by_source.setdefault(source_id, set()).add(target_id)
+            for source_id, targets in targets_by_source.items():
+                for target_id in targets:
+                    if valid_finding_link(traces[source_id], traces[target_id], relationship, reviewed_count=len(targets)):
+                        predecessors.add(target_id)
+
+        def rank(trace: GraphNode) -> tuple[bool, bool, float, str]:
+            timestamp = finding_observed_timestamp(trace)
+            return (trace.id in predecessors, timestamp is None, -(timestamp or 0), trace.id)
+
+        ordered = sorted(traces.values(), key=rank)
+        return LimitedResult(items=[trace.id for trace in ordered[:limit]], truncated=len(ordered) > limit)
 
     @_locked
     def get_node(self, label: str, node_id: str, *, scope_key: str | None = None) -> GraphNode | None:

@@ -12,12 +12,11 @@ import json
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal, cast
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
 from deepagents_graph_memory.paths import node_path, parse_graph_path
-from deepagents_graph_memory.stores import GraphEdge, GraphNode, GraphStoreAdapter, JsonValue
+from deepagents_graph_memory.stores import GraphEdge, GraphNode, GraphStoreAdapter, JsonValue, finding_observed_timestamp, valid_finding_link
 
 RecallMode = Literal["auto", "local", "deep"]
 
@@ -57,6 +56,7 @@ class _RecallState:
     stopped_reason: str = ""
     related_findings: bool = False
     related_incomplete: bool = False
+    omitted_anchors: list[_NodeRef] | None = None
 
 
 def recall_graph_memory(
@@ -99,8 +99,16 @@ def recall_graph_memory(
         return _render_recall(query, state, token_budget=token_budget)
 
     processed_subjects: set[str] = set()
+    anchored_refs = {_seed_from_anchor(anchor) for anchor in anchors}
     _expand_subject_findings(
-        store, seeds, state, processed_subjects=processed_subjects, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges
+        store,
+        seeds,
+        state,
+        processed_subjects=processed_subjects,
+        scope_key=scope_key,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+        anchored_refs=anchored_refs,
     )
 
     for index, seed in enumerate(seeds):
@@ -108,6 +116,9 @@ def recall_graph_memory(
         if node is None:
             continue
         _add_node(state, node, distance=0, score=100 - index, max_nodes=max_nodes)
+        if seed in anchored_refs and seed not in state.nodes:
+            state.related_incomplete = True
+            state.omitted_anchors = [*(state.omitted_anchors or []), seed]
 
     target_depth = 1 if mode == "local" else max_depth
     frontier = list(seeds)
@@ -166,7 +177,14 @@ def recall_graph_memory(
     if not state.stopped_reason:
         state.stopped_reason = f"Reached traversal depth {target_depth}."
     _expand_subject_findings(
-        store, list(state.nodes), state, processed_subjects=processed_subjects, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges
+        store,
+        list(state.nodes),
+        state,
+        processed_subjects=processed_subjects,
+        scope_key=scope_key,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+        anchored_refs=anchored_refs,
     )
     return _render_recall(query, state, token_budget=token_budget)
 
@@ -180,6 +198,7 @@ def _expand_subject_findings(
     scope_key: str | None,
     max_nodes: int,
     max_edges: int,
+    anchored_refs: set[_NodeRef | None],
 ) -> None:
     """Bring findings for a retrieved subject together before normal traversal uses budgets."""
     subjects: set[str] = set()
@@ -217,43 +236,49 @@ def _expand_subject_findings(
         if subject_id in processed_subjects:
             continue
         processed_subjects.add(subject_id)
-        neighborhood = store.get_neighbors("Subject", subject_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges)
-        if neighborhood is None:
+        subject = store.get_node("Subject", subject_id, scope_key=scope_key)
+        if subject is None:
             continue
         state.related_findings = True
-        _add_node(state, neighborhood.node, distance=0, score=120, max_nodes=max_nodes)
-        state.related_incomplete |= neighborhood.truncated_nodes or neighborhood.truncated_edges
-        for edge in neighborhood.edges:
-            if edge.relationship != "ABOUT" or edge.source_label != "Trace":
-                continue
-            if len(state.nodes) >= max_nodes or len(state.edges) >= max_edges:
-                state.related_incomplete = True
-                break
-            trace = store.get_node("Trace", edge.source_id, scope_key=scope_key)
+        anchored_traces = [
+            ref
+            for ref in seeds
+            if ref in anchored_refs
+            and ref.label == "Trace"
+            and (anchor := store.get_node("Trace", ref.node_id, scope_key=scope_key)) is not None
+            and anchor.properties.get("subject") == subject.properties.get("value")
+        ]
+        available = max_nodes - len(state.nodes)
+        reserve_anchor = bool(anchored_traces and available > 1)
+        selected = store.list_subject_trace_ids(subject_id, scope_key=scope_key, limit=max(available - int(reserve_anchor), 0))
+        state.related_incomplete |= selected.truncated
+        trace_ids = selected.items
+        if reserve_anchor:
+            trace_ids.extend(ref.node_id for ref in anchored_traces if ref.node_id not in trace_ids)
+        for trace_id in trace_ids:
+            trace = store.get_node("Trace", trace_id, scope_key=scope_key)
             if trace is None:
                 state.related_incomplete = True
                 continue
             _add_node(state, trace, distance=1, score=110, max_nodes=max_nodes)
-            _add_edge(state, edge, distance=1, score=110, max_edges=max_edges)
-            if _NodeRef("Trace", edge.source_id) not in state.nodes:
+            if _NodeRef("Trace", trace_id) not in state.nodes:
                 state.related_incomplete = True
-        for edge in list(neighborhood.edges):
-            if edge.relationship != "ABOUT" or _NodeRef("Trace", edge.source_id) not in state.nodes:
-                continue
-            if len(state.edges) >= max_edges:
-                state.related_incomplete = True
-                break
-            trace_links = store.get_neighbors("Trace", edge.source_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges)
+        if len(state.nodes) < max_nodes:
+            _add_node(state, subject, distance=0, score=120, max_nodes=max_nodes)
+        for trace_id in trace_ids:
+            trace_links = store.get_neighbors("Trace", trace_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max(max_edges, 100))
             if trace_links is None:
                 continue
             if trace_links.truncated_edges:
                 state.related_incomplete = True
             for link in trace_links.edges:
-                if link.relationship in {"SUPERSEDES", "RESOLVES"}:
+                if link.relationship in {"SUPERSEDES", "RESOLVES"} and link.source_id == trace_id:
                     if _NodeRef("Trace", link.target_id) in state.nodes:
                         _add_edge(state, link, distance=1, score=110, max_edges=max_edges)
                     else:
                         state.related_incomplete = True
+                elif link.relationship == "ABOUT" and _NodeRef("Subject", subject_id) in state.nodes:
+                    _add_edge(state, link, distance=1, score=110, max_edges=max_edges)
 
 
 def _find_seed_nodes(
@@ -415,6 +440,11 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
         return "\n".join(lines).rstrip() + "\n"
 
     if state.related_findings:
+        for ref in state.omitted_anchors or []:
+            path = _prefixed(node_path(ref.label, ref.node_id))
+            lines.append(f"Anchor omitted from bounded history: `{path}`. Read it directly for earlier context.")
+        if state.omitted_anchors:
+            lines.append("")
         lines.extend(_finding_history(state))
 
     if state.nodes:
@@ -467,21 +497,24 @@ def _finding_history(state: _RecallState) -> list[str]:
         newer, older = traces.get(edge.source_id), traces.get(edge.target_id)
         if newer is None or older is None:
             continue
-        if edge.relationship == "SUPERSEDES" and _valid_supersession(newer, older):
+        if edge.relationship == "SUPERSEDES" and valid_finding_link(newer, older, "SUPERSEDES"):
             successors.setdefault(edge.target_id, []).append(edge.source_id)
-        elif (
-            edge.relationship == "RESOLVES"
-            and newer.properties.get("subject") == older.properties.get("subject")
-            and newer.properties.get("evidence")
-        ):
+        elif edge.relationship == "RESOLVES" and valid_finding_link(newer, older, "RESOLVES", reviewed_count=2):
             resolution_targets.setdefault(edge.source_id, set()).add(edge.target_id)
     reviewed: dict[str, list[str]] = {}
     for resolution_id, targets in resolution_targets.items():
         if len(targets) >= 2:
             for target_id in targets:
                 reviewed.setdefault(target_id, []).append(resolution_id)
-    ordered = sorted(traces.values(), key=lambda node: str(node.properties.get("observed_at") or ""), reverse=True)
-    ordered.sort(key=lambda node: node.id in successors or node.id in reviewed)
+    ordered = sorted(
+        traces.values(),
+        key=lambda node: (
+            node.id in successors or node.id in reviewed,
+            finding_observed_timestamp(node) is None,
+            -(finding_observed_timestamp(node) or 0),
+            node.id,
+        ),
+    )
     lines = ["## Finding history"]
     for trace in ordered:
         path = _prefixed(node_path("Trace", trace.id))
@@ -498,25 +531,14 @@ def _finding_history(state: _RecallState) -> list[str]:
                 + ", ".join(f"[Trace: {node_id}]({_prefixed(node_path('Trace', node_id))})" for node_id in sorted(resolutions))
             )
         status = "; ".join(statuses) if statuses else "not superseded (requires comparison)"
+        if not statuses and state.related_incomplete:
+            status = "status unknown in partial history (requires comparison)"
         observed = trace.properties.get("observed_at", "unknown")
         outcome = trace.properties.get("outcome", "unknown")
-        lines.append(f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}; outcome: {outcome}")
+        source = trace.properties.get("source", "unknown")
+        evidence = trace.properties.get("evidence", "unknown")
+        lines.append(f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}; outcome: {outcome}; source: {source}; evidence: {evidence}")
     return [*lines, ""]
-
-
-def _valid_supersession(newer: GraphNode, older: GraphNode) -> bool:
-    if newer.properties.get("finding_type") != "state" or older.properties.get("finding_type") != "state":
-        return False
-    if not newer.properties.get("evidence"):
-        return False
-    if newer.properties.get("subject") != older.properties.get("subject"):
-        return False
-    try:
-        new_time = datetime.fromisoformat(newer.properties["observed_at"])
-        old_time = datetime.fromisoformat(older.properties["observed_at"])
-        return new_time.tzinfo is not None and old_time.tzinfo is not None and new_time > old_time
-    except (KeyError, TypeError, ValueError):
-        return False
 
 
 def _sorted_nodes(records: Iterable[_NodeRecord]) -> list[_NodeRecord]:
