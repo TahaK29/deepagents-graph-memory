@@ -24,6 +24,8 @@ _VALID_MODES = {"auto", "local", "deep"}
 _TERM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*")
 _MAX_QUERY_LENGTH = 1000
 _MAX_DEPTH = 10
+_TRACE_COMPONENTS = {"Situation": "situation", "Rationale": "rationale", "Action": "action", "Outcome": "outcome"}
+_GENERATED_TRACE_LINKS = {"HAS_SITUATION", "HAS_RATIONALE", "HAS_ACTION", "HAS_OUTCOME", "LED_TO", "JUSTIFIED", "PRODUCED"}
 
 
 @dataclass(frozen=True, order=True)
@@ -60,6 +62,7 @@ class _RecallState:
     dependency_notices: list[str] | None = None
     dependency_unknown: bool = False
     dependency_unknown_roots: list[str] | None = None
+    explicit_anchors: set[_NodeRef] | None = None
 
 
 def recall_graph_memory(
@@ -97,6 +100,7 @@ def recall_graph_memory(
 
     terms = _query_terms(query)
     state = _RecallState(nodes={}, edges={})
+    state.explicit_anchors = {ref for anchor in anchors if (ref := _seed_from_anchor(anchor)) is not None}
     seeds = _find_seed_nodes(store, query, terms, anchors=anchors, scope_key=scope_key, limit=min(max_nodes, 20), state=state)
     if not seeds:
         return _render_recall(query, state, token_budget=token_budget)
@@ -207,8 +211,7 @@ def _review_dependencies(
         dict.fromkeys(
             _NodeRef("Trace", trace_id)
             for ref, record in state.nodes.items()
-            if (trace_id := ref.node_id if ref.label == "Trace" else record.node.properties.get("trace_id")) is not None
-            and isinstance(trace_id, str)
+            if (trace_id := ref.node_id if ref.label == "Trace" else record.node.properties.get("trace_id")) is not None and isinstance(trace_id, str)
         )
     )
     notices: list[str] = []
@@ -602,30 +605,46 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
             lines.append("")
         lines.extend(_finding_history(state))
 
-    if state.nodes:
+    covered_traces = {
+        ref.node_id
+        for ref, record in state.nodes.items()
+        if ref.label == "Trace" and state.related_findings and isinstance(record.node.properties.get("subject"), str)
+    }
+    rendered_traces = {
+        ref.node_id
+        for ref, record in state.nodes.items()
+        if ref.label == "Trace"
+        and record.node.properties.get("kind") == "reasoning_trace"
+        and all(field in record.node.properties for field in _TRACE_COMPONENTS.values())
+    }
+    hidden_components = _redundant_trace_components(state, rendered_traces)
+    visible_nodes = [
+        record for ref, record in state.nodes.items() if ref not in hidden_components and not (ref.label == "Trace" and ref.node_id in covered_traces)
+    ]
+    visible_edges = [record for record in state.edges.values() if not _redundant_trace_link(record.edge, state, hidden_components)]
+
+    if visible_nodes:
         lines.append("## Nodes")
-        for record in _sorted_nodes(state.nodes.values()):
+        for record in _sorted_nodes(visible_nodes):
             path = _prefixed(node_path(record.node.label, record.node.id))
             suffix = _property_suffix(record.node.properties)
+            if record.node.label == "Trace" and _has_recorded_reasoning_chain(state, record.node.id):
+                suffix += "; Situation -LED_TO-> Rationale -JUSTIFIED-> Action -PRODUCED-> Outcome"
             lines.append(f"- [{record.node.label}: {record.node.id}]({path}){suffix}")
         lines.append("")
 
-    if state.edges:
+    if visible_edges:
         lines.append("## Relationships")
-        for record in _sorted_edges(state.edges.values()):
+        for record in _sorted_edges(visible_edges):
             edge = record.edge
             source_path = _prefixed(node_path(edge.source_label, edge.source_id))
             target_path = _prefixed(node_path(edge.target_label, edge.target_id))
             lines.append(
                 f"- [{edge.source_label}: {edge.source_id}]({source_path}) -[{edge.relationship}]-> "
-                f"[{edge.target_label}: {edge.target_id}]({target_path})"
+                f"[{edge.target_label}: {edge.target_id}]({target_path}){_generated_edge_detail(edge, state)}"
             )
         lines.append("")
 
-    lines.append("## Source Paths")
-    for path in _source_paths(state):
-        lines.append(f"- `{path}`")
-    lines.append("")
     if state.stopped_reason:
         lines.append(f"Traversal note: {state.stopped_reason}")
     notes = _truncation_notes(state)
@@ -712,15 +731,10 @@ def _finding_history(state: _RecallState) -> list[str]:
         if not statuses and state.related_incomplete:
             status = "status unknown in partial history (requires comparison)"
         observed = trace.properties.get("observed_at", "unknown")
-        outcome = trace.properties.get("outcome", "unknown")
-        source = trace.properties.get("source", "unknown")
-        evidence = trace.properties.get("evidence", "unknown")
+        details = _property_suffix({key: value for key, value in trace.properties.items() if key not in {"observed_at", "evidence_refs"}})
         refs = trace.properties.get("evidence_refs")
         citations = f"; cited sources: {json.dumps(refs, sort_keys=True)}" if refs else ""
-        lines.append(
-            f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}; "
-            f"outcome: {outcome}; source: {source}; unstructured evidence reports: {evidence}{citations}"
-        )
+        lines.append(f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}{details}{citations}")
     return [*lines, ""]
 
 
@@ -743,17 +757,97 @@ def _sorted_edges(records: Iterable[_EdgeRecord]) -> list[_EdgeRecord]:
     )
 
 
-def _source_paths(state: _RecallState) -> list[str]:
-    paths = {_prefixed(node_path(record.node.label, record.node.id)) for record in state.nodes.values()}
-    return sorted(paths)
+def _redundant_trace_components(state: _RecallState, rendered_traces: set[str]) -> set[_NodeRef]:
+    hidden: set[_NodeRef] = set()
+    for ref, record in state.nodes.items():
+        field = _TRACE_COMPONENTS.get(ref.label)
+        owner_id = record.node.properties.get("trace_id")
+        if field is None or not isinstance(owner_id, str) or owner_id not in rendered_traces:
+            continue
+        owner = state.nodes[_NodeRef("Trace", owner_id)].node
+        if ref.node_id != f"{owner_id}-{field}" or ref in (state.explicit_anchors or set()):
+            continue
+        if record.node.properties.get("text") != owner.properties.get(field):
+            continue
+        if all(
+            key in {"text", "trace_id", "created_at", "updated_at"} or owner.properties.get(key) == value
+            for key, value in record.node.properties.items()
+        ):
+            hidden.add(ref)
+    for record in state.edges.values():
+        edge = record.edge
+        owner_id = _generated_trace_link_owner(edge)
+        if owner_id is None or owner_id not in rendered_traces:
+            continue
+        owner = state.nodes[_NodeRef("Trace", owner_id)].node
+        if not _generated_edge_metadata_matches(edge, owner):
+            hidden.discard(_NodeRef(edge.source_label, edge.source_id))
+            hidden.discard(_NodeRef(edge.target_label, edge.target_id))
+    return hidden
+
+
+def _generated_trace_link_owner(edge: GraphEdge) -> str | None:
+    if edge.relationship not in _GENERATED_TRACE_LINKS:
+        return None
+    owner_id = edge.properties.get("trace_id")
+    if not isinstance(owner_id, str):
+        return None
+    expected = {
+        "HAS_SITUATION": ("Trace", owner_id, "Situation", f"{owner_id}-situation"),
+        "HAS_RATIONALE": ("Trace", owner_id, "Rationale", f"{owner_id}-rationale"),
+        "HAS_ACTION": ("Trace", owner_id, "Action", f"{owner_id}-action"),
+        "HAS_OUTCOME": ("Trace", owner_id, "Outcome", f"{owner_id}-outcome"),
+        "LED_TO": ("Situation", f"{owner_id}-situation", "Rationale", f"{owner_id}-rationale"),
+        "JUSTIFIED": ("Rationale", f"{owner_id}-rationale", "Action", f"{owner_id}-action"),
+        "PRODUCED": ("Action", f"{owner_id}-action", "Outcome", f"{owner_id}-outcome"),
+    }
+    return owner_id if (edge.source_label, edge.source_id, edge.target_label, edge.target_id) == expected[edge.relationship] else None
+
+
+def _has_recorded_reasoning_chain(state: _RecallState, trace_id: str) -> bool:
+    relationships = {
+        edge.relationship
+        for record in state.edges.values()
+        if (edge := record.edge).relationship in {"LED_TO", "JUSTIFIED", "PRODUCED"} and _generated_trace_link_owner(edge) == trace_id
+    }
+    return relationships == {"LED_TO", "JUSTIFIED", "PRODUCED"}
+
+
+def _redundant_trace_link(edge: GraphEdge, state: _RecallState, hidden_components: set[_NodeRef]) -> bool:
+    owner_id = _generated_trace_link_owner(edge)
+    if owner_id is None:
+        return False
+    owner_record = state.nodes.get(_NodeRef("Trace", owner_id))
+    if owner_record is None:
+        return False
+    if not _generated_edge_metadata_matches(edge, owner_record.node):
+        return False
+    endpoints = (_NodeRef(edge.source_label, edge.source_id), _NodeRef(edge.target_label, edge.target_id))
+    return all(ref.label == "Trace" or ref in hidden_components for ref in endpoints)
+
+
+def _generated_edge_metadata_matches(edge: GraphEdge, trace: GraphNode) -> bool:
+    return all(
+        key in {"created_at", "updated_at"} or (key == "trace_id" and value == trace.id) or trace.properties.get(key) == value
+        for key, value in edge.properties.items()
+    )
+
+
+def _generated_edge_detail(edge: GraphEdge, state: _RecallState) -> str:
+    owner_id = _generated_trace_link_owner(edge)
+    owner = state.nodes.get(_NodeRef("Trace", owner_id)) if owner_id is not None else None
+    if owner is None:
+        return ""
+    distinct = {
+        key: value
+        for key, value in edge.properties.items()
+        if key not in {"created_at", "updated_at", "trace_id"} and owner.node.properties.get(key) != value
+    }
+    return f" - `{json.dumps(distinct, sort_keys=True)}`" if distinct else ""
 
 
 def _property_suffix(properties: dict[str, JsonValue]) -> str:
-    public = {
-        key: value
-        for key, value in properties.items()
-        if key not in {"scope_key", "created_at", "updated_at", "created_by", "created_by_agent", "source_agent", "search_text"}
-    }
+    public = {key: value for key, value in properties.items() if key not in {"scope_key", "created_at", "updated_at", "search_text"}}
     if not public:
         return ""
     return f" - `{json.dumps(public, sort_keys=True)}`"

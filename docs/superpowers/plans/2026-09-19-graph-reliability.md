@@ -224,3 +224,19 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 - [ ] Sync/async calls, namespace isolation, transactions, rollback, and all prior tests pass.
 - [ ] README examples and offline workflow scenarios run without provider credentials.
 - [ ] Final report separates verified fixes from caller-dependent semantics and unrun live evaluations.
+
+## Review follow-up: remove duplicated recall output
+
+The first Task 6 run found truncation in all twelve scenarios at the original
+2,000-token / 8,000-character defaults, including a single retried observation.
+Trace fields appeared in finding history, full nodes, generated components, chain
+relationships, and repeated source paths. Raising the evaluation cap would hide
+this product issue.
+
+- Keep the evaluation cap unchanged.
+- Render each trace's meaningful fields, provenance, times, and evidence once.
+- Suppress only generated component data and links proven redundant with that trace.
+- Preserve explicit component anchors, changed component data, custom metadata and relationships.
+- Keep direct debug views complete and retain every genuine incompleteness warning.
+- [x] Review and test the compact rendering follow-up in the original Task 1 thread.
+- [ ] Repeat the offline scenarios at the original cap and report remaining limitations.

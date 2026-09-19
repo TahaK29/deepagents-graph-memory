@@ -23,7 +23,6 @@ def test_recall_direct_node_match():
 
     assert "# Graph Memory Recall: langfuse" in content
     assert "[service: langfuse](/graph/nodes/service/langfuse.md)" in content
-    assert "`/graph/nodes/service/langfuse.md`" in content
 
 
 def test_recall_relationship_match():
@@ -129,3 +128,96 @@ def test_recall_tool_is_exposed():
 
     assert "Graph Memory Recall" in content
     assert "DEPENDS_ON" in content
+
+
+def test_structured_trace_recall_fits_without_repeating_generated_components():
+    backend = GraphMemoryBackend.create()
+    trace_id = backend.record_graph_trace(
+        operation_id="retry-check-7",
+        situation="parser check",
+        rationale="captured output",
+        action="ran parser test",
+        outcome="timeout",
+        subject="parser@linux",
+        finding_type="state",
+        observed_at="2026-09-19T10:00:00Z",
+        evidence_refs=[{"source_id": "retry-run", "locator": "logs/retry-run.txt", "summary": "timeout"}],
+        created_by_agent="worker-a",
+    )
+    content = backend.recall_graph_memory("parser", anchors=[f"/graph/nodes/Trace/{trace_id}.md"])
+    assert "Results truncated for token budget" not in content
+    assert content.count('"outcome": "timeout"') == 1
+    assert '"situation": "parser check"' in content
+    assert '"rationale": "captured output"' in content
+    assert '"created_by_agent": "worker-a"' in content
+    assert "CITES" in content and "retry-run" in content
+    assert "## Source Paths" not in content
+    assert f"[Outcome: {trace_id}-outcome]" not in content
+
+
+def test_distinct_component_detail_remains_visible_in_structured_recall():
+    backend = GraphMemoryBackend.create()
+    backend.record_graph_trace(
+        trace_id="one",
+        situation="check",
+        rationale="log",
+        action="ran",
+        outcome="failed",
+        subject="parser@linux",
+    )
+    backend.add_graph_node("Outcome", "one-outcome", {"inspection_note": "manual review needed"})
+    backend.add_graph_edge("Trace", "one", "HAS_OUTCOME", "Outcome", "one-outcome", {"review": "verified independently"})
+    content = backend.recall_graph_memory("failed", anchors=["/graph/nodes/Trace/one.md"])
+    assert "[Outcome: one-outcome]" in content
+    assert "manual review needed" in content
+    assert '"review": "verified independently"' in content
+
+
+def test_two_structured_updates_fit_default_token_budget():
+    backend = GraphMemoryBackend.create()
+    common = dict(subject="parser@linux", finding_type="state", situation="parser check", rationale="captured output", action="ran test")
+    backend.record_graph_trace(
+        trace_id="old",
+        outcome="failed",
+        observed_at="2026-09-19T10:00:00Z",
+        evidence=["run one"],
+        **common,
+    )
+    backend.record_graph_trace(
+        trace_id="new",
+        outcome="passed",
+        observed_at="2026-09-19T11:00:00Z",
+        evidence=["run two"],
+        supersedes=["old"],
+        **common,
+    )
+    content = backend.recall_graph_memory("failed", anchors=["/graph/nodes/Trace/old.md"])
+    assert "Results truncated for token budget" not in content
+    assert content.count('"outcome": "failed"') == 1
+    assert content.count('"outcome": "passed"') == 1
+    assert "SUPERSEDES" in content
+
+
+def test_legacy_trace_shows_full_reasoning_without_repeated_component_nodes():
+    backend = GraphMemoryBackend.create()
+    backend.record_graph_trace(trace_id="legacy", situation="test failed", rationale="log output", action="reran test", outcome="passed")
+    content = backend.recall_graph_memory("test failed", anchors=["/graph/nodes/Trace/legacy.md"])
+    assert "Results truncated for token budget" not in content
+    assert '"situation": "test failed"' in content
+    assert '"rationale": "log output"' in content
+    assert '"action": "reran test"' in content
+    assert '"outcome": "passed"' in content
+    assert "Situation -LED_TO-> Rationale -JUSTIFIED-> Action -PRODUCED-> Outcome" in content
+    assert "[Outcome: legacy-outcome]" not in content
+
+
+def test_low_level_trace_fields_do_not_imply_reasoning_links():
+    backend = GraphMemoryBackend.create()
+    backend.add_graph_node(
+        "Trace",
+        "loose",
+        {"situation": "check", "rationale": "log", "action": "ran", "outcome": "passed"},
+    )
+    content = backend.recall_graph_memory("check", anchors=["/graph/nodes/Trace/loose.md"])
+    assert '"outcome": "passed"' in content
+    assert "LED_TO" not in content and "JUSTIFIED" not in content and "PRODUCED" not in content
