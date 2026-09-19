@@ -44,6 +44,10 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
   decision and verify the disputed point with a targeted independent check.
 - Truncated related findings are not evidence that the visible claims agree. Fetch or
   narrow context before treating them as a resolved answer.
+- A conclusion marked `needs recheck` relied on a changed premise. Inspect the
+  premise and its update or resolution, then verify current external state before
+  relying on that conclusion. `Dependency status unknown` also requires a narrower
+  recall or direct source check; it does not mean the conclusion is current.
 
 ## Writing Graph Context
 
@@ -66,6 +70,9 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
 - After checking competing claims, record an evidenced resolution with `resolves`
   pointing to at least two same-subject traces. Explain the review in the rationale
   and evidence. This records a judgment; it does not make the graph verify truth.
+- When a decision relies on recorded findings, pass their Trace IDs in `depends_on`.
+  Rechecking creates a new trace that cites the findings actually used; keep the
+  original decision as history.
 - Do not store ordinary user preferences, profile facts, or unrelated notes in the graph.
 - Generated `/graph/...` markdown paths are read-only views over graph data, not storage locations to edit.
 - If low-level graph write tools are exposed, use them only with clear labels, relationship

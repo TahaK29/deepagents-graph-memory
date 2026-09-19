@@ -172,6 +172,40 @@ visible when the budget fits them. A partial history is labeled incomplete, and
 an omitted anchor gets a direct path to inspect. This currently scans one subject's
 traces during recall, so very large subjects may cost more to read.
 
+Conclusions can cite prior Trace IDs with `depends_on`. The targets must already
+exist in the same namespace. Recall follows these links within its node, edge,
+and depth budgets. If a cited finding is explicitly superseded or reviewed in a
+resolution, recall marks the dependent conclusion `needs recheck` and shows the
+changed premise's update path. This also applies through a chain of dependencies.
+It flags review; it does not prove the decision false or change the original trace.
+Missing evidence, cycles, or an incomplete dependency traversal produce an
+unknown-status warning. A fresh conclusion should cite the current findings it
+actually used.
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+
+graph = GraphMemoryBackend.create()
+graph.record_graph_trace(
+    trace_id="probe-failed", situation="checkout probe", rationale="run 1",
+    action="tested checkout", outcome="failed", subject="checkout@staging",
+    finding_type="state", observed_at="2026-09-19T10:00:00Z", evidence=["run 1 log"],
+)
+graph.record_graph_trace(
+    trace_id="mitigation", situation="checkout failed", rationale="probe-failed",
+    action="chose temporary mitigation", outcome="disable checkout",
+    depends_on=["probe-failed"],
+)
+graph.record_graph_trace(
+    trace_id="probe-passed", situation="checkout probe", rationale="run 2",
+    action="tested checkout", outcome="passed", subject="checkout@staging",
+    finding_type="state", observed_at="2026-09-19T11:00:00Z", evidence=["run 2 log"],
+    supersedes=["probe-failed"],
+)
+context = graph.recall_graph_memory("mitigation", anchors=["/graph/nodes/Trace/mitigation.md"])
+assert "needs recheck" in context
+```
+
 Use `operation_id` when retrying the same trace write. Replaying the same request
 returns its original trace ID without changing the graph; changing any request
 field under that ID raises `GraphMemoryValidationError`. A new execution needs a

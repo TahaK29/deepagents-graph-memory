@@ -70,10 +70,10 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 **Additional cases:** two live branches, unknown observation time, old/component/subject/task anchors, namespace separation, large shared subjects, tiny token/edge/node limits, resolution chains, deterministic ordering.
 
-- [ ] Reproduce the omission before changing selection.
-- [ ] Implement store selection and recall integration without a second recall engine.
-- [ ] Run focused tests, full pytest, Ruff, and the README recall example.
-- [ ] Parent reviews candidate ordering, all budget notices, and query scope, then commits.
+- [x] Reproduce the omission before changing selection.
+- [x] Implement store selection and recall integration without a second recall engine.
+- [x] Run focused tests, full pytest, Ruff, and the README recall example.
+- [x] Parent reviews candidate ordering, all budget notices, and query scope, then commits.
 
 ## Task 2: Retry safety by operation identity
 
@@ -100,10 +100,10 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 **Additional cases:** conflicting payload, concurrent identical retries, retry after rollback, timezone-normalized equivalent input, changed evidence, separate namespaces, sync/async compiled ToolNode execution, direct dictionary invocation, no runtime field in model JSON schema.
 
-- [ ] Add transaction and real-runtime regression tests.
-- [ ] Implement fingerprinting and optional runtime injection.
-- [ ] Verify existing callers and public tool schemas still work.
-- [ ] Parent reviews and commits after full verification.
+- [x] Add transaction and real-runtime regression tests.
+- [x] Implement fingerprinting and optional runtime injection.
+- [x] Verify existing callers and public tool schemas still work.
+- [x] Parent reviews and commits after full verification.
 
 ## Task 3: Shared subject identity without fuzzy merging
 
@@ -125,9 +125,9 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 **Additional cases:** tuple-separator collisions, empty fields, overlong subject, case preserved, workers using different descriptions but the same binding, attempts to override binding, unbound tools backward compatibility.
 
-- [ ] Test canonical encoding and binding behavior.
-- [ ] Add helper, binding, and a parent/worker example using existing APIs.
-- [ ] Parent reviews and commits after focused/full verification.
+- [x] Test canonical encoding and binding behavior.
+- [x] Add helper, binding, and a parent/worker example using existing APIs.
+- [x] Parent reviews and commits after focused/full verification.
 
 ## Task 4: Decisions whose supporting findings changed
 
@@ -155,9 +155,9 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 **Additional cases:** unchanged premise, transitive dependency, unrelated change, cross-scope target, duplicate dependency IDs, malformed references, missing/partial evidence, low-level cycle, rechecked conclusion based on current premise, atomic failure.
 
-- [ ] Test a stale premise changing a previously recorded decision's recall status.
-- [ ] Add explicit dependencies and bounded read-time review notices.
-- [ ] Parent confirms this flags review rather than making decisions, then verifies and commits.
+- [x] Test a stale premise changing a previously recorded decision's recall status.
+- [x] Add explicit dependencies and bounded read-time review notices.
+- [x] Parent confirms this flags review rather than making decisions, then verifies and commits.
 
 ## Task 5: Evidence source identity
 

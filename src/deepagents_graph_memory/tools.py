@@ -129,6 +129,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
         observed_at: str | None = None,
         supersedes: list[str] | None = None,
         resolves: list[str] | None = None,
+        depends_on: list[str] | None = None,
         finding_type: Literal["state", "interpretation"] = "interpretation",
         operation_id: str | None = None,
         runtime: ToolRuntime = None,  # This installed ToolNode injects ToolRuntime, but not ToolRuntime | None.
@@ -157,6 +158,7 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
                 observed_at=observed_at,
                 supersedes=supersedes,
                 resolves=resolves,
+                depends_on=depends_on,
                 finding_type=finding_type,
                 operation_id=operation_id,
                 source="graph_trace_tool",

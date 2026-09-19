@@ -258,6 +258,7 @@ class GraphMemoryBackend(BackendProtocol):
         observed_at: str | None = None,
         supersedes: list[str] | None = None,
         resolves: list[str] | None = None,
+        depends_on: list[str] | None = None,
         finding_type: Literal["state", "interpretation"] = "interpretation",
         **metadata: Any,
     ) -> str:
@@ -280,6 +281,7 @@ class GraphMemoryBackend(BackendProtocol):
             observed_at: Time of observation, if known, as a timezone-aware ISO 8601 value.
             supersedes: Earlier state trace IDs this evidenced observation replaces.
             resolves: At least two same-subject traces reviewed by an evidenced resolution.
+            depends_on: Existing trace IDs whose findings support this conclusion.
             finding_type: Whether the finding reports mutable state or an interpretation.
             **metadata: Additional JSON-serializable metadata written to trace nodes and edges.
 
@@ -330,6 +332,9 @@ class GraphMemoryBackend(BackendProtocol):
         resolves = list(dict.fromkeys(validate_node_id(item) for item in resolves or []))
         if resolves and (subject is None or not evidence or len(resolves) < 2 or supersedes):
             raise GraphMemoryValidationError("resolves requires a subject, evidence, at least two distinct traces, and no supersedes.")
+        if depends_on is not None and (not isinstance(depends_on, list) or any(not isinstance(item, str) for item in depends_on)):
+            raise GraphMemoryValidationError("depends_on must be a list of trace IDs.")
+        depends_on = list(dict.fromkeys(validate_node_id(item) for item in depends_on or []))
         recorded_at = utc_now()
         node_specs = [
             ("Situation", validate_node_id(f"{trace_id}-situation"), situation),
@@ -348,7 +353,10 @@ class GraphMemoryBackend(BackendProtocol):
         }
         if any(key in metadata for key in ("operation_id", "request_fingerprint")):
             raise GraphMemoryValidationError("operation_id and request_fingerprint are reserved trace metadata.")
-        if any(key in metadata for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "evidence")):
+        if any(
+            key in metadata
+            for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "depends_on", "evidence")
+        ):
             raise GraphMemoryValidationError("subject, finding, time, supersession, and evidence metadata must use their explicit arguments.")
         for key, value in reserved.items():
             if key in metadata and metadata[key] != value:
@@ -374,6 +382,7 @@ class GraphMemoryBackend(BackendProtocol):
                 "observed_at": observed_at,
                 "supersedes": sorted(supersedes),
                 "resolves": sorted(resolves),
+                "depends_on": sorted(depends_on),
                 "finding_type": finding_type,
                 "metadata": validate_properties(metadata),
             }
@@ -388,9 +397,11 @@ class GraphMemoryBackend(BackendProtocol):
                 "action": action,
                 "outcome": outcome,
                 "recorded_at": recorded_at,
+                "evidence": evidence,
                 **({"operation_id": operation_id, "request_fingerprint": request_fingerprint} if operation_id is not None else {}),
-                **({"subject": subject, "finding_type": finding_type, "evidence": evidence} if subject is not None else {}),
+                **({"subject": subject, "finding_type": finding_type} if subject is not None else {}),
                 **({"observed_at": observed_at} if observed_at is not None else {}),
+                **({"depends_on": depends_on} if depends_on else {}),
                 **trace_context,
             },
             scope_key=scope_key,
@@ -410,6 +421,9 @@ class GraphMemoryBackend(BackendProtocol):
                 reviewed = self.store.get_node("Trace", reviewed_id, scope_key=scope_key)
                 if reviewed is None or reviewed.properties.get("subject") != subject:
                     raise GraphMemoryValidationError(f"resolved trace {reviewed_id} must exist for the same subject.")
+            for premise_id in depends_on:
+                if self.store.get_node("Trace", premise_id, scope_key=scope_key) is None:
+                    raise GraphMemoryValidationError(f"dependency trace {premise_id} must exist in the same namespace.")
             for old_id in supersedes:
                 old = self.store.get_node("Trace", old_id, scope_key=scope_key)
                 if old is None or old.properties.get("subject") != subject or old.properties.get("finding_type") != "state":
@@ -436,6 +450,8 @@ class GraphMemoryBackend(BackendProtocol):
                 self._add_trace_edge("Trace", trace_id, "SUPERSEDES", "Trace", old_id, scope_key=scope_key, metadata=edge_metadata)
             for reviewed_id in resolves:
                 self._add_trace_edge("Trace", trace_id, "RESOLVES", "Trace", reviewed_id, scope_key=scope_key, metadata=edge_metadata)
+            for premise_id in depends_on:
+                self._add_trace_edge("Trace", trace_id, "BASED_ON", "Trace", premise_id, scope_key=scope_key, metadata=edge_metadata)
 
             for label, node_id, text in node_specs:
                 self.store.add_node(

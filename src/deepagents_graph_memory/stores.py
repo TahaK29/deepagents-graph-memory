@@ -125,6 +125,14 @@ class NeighborhoodResult:
     truncated_edges: bool = False
 
 
+@dataclass(frozen=True)
+class EdgeResult:
+    """A bounded list of focused graph relationships."""
+
+    items: list[GraphEdge]
+    truncated: bool = False
+
+
 class GraphStoreAdapter(Protocol):
     """Internal adapter boundary for the Kuzu graph store.
 
@@ -158,6 +166,11 @@ class GraphStoreAdapter(Protocol):
         max_edges: int = 100,
     ) -> NeighborhoodResult | None:
         """Return a bounded node neighborhood."""
+
+    def list_trace_edges(
+        self, trace_id: str, relationship: str, *, incoming: bool = False, scope_key: str | None = None, limit: int = 50
+    ) -> EdgeResult:
+        """Return one trace's relationships without unrelated neighbors using the budget."""
 
     def search(self, query: str, *, scope_key: str | None = None, limit: int = 20) -> SearchResult:
         """Search graph metadata."""

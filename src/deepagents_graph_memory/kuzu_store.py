@@ -17,6 +17,7 @@ from typing import Any, cast
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
 from deepagents_graph_memory.paths import node_path, validate_identifier, validate_node_id
 from deepagents_graph_memory.stores import (
+    EdgeResult,
     GraphEdge,
     GraphNode,
     LimitedResult,
@@ -305,6 +306,29 @@ class KuzuGraphStore:
 
         edges = sorted(collected.values(), key=lambda edge: (edge.relationship, edge.source_label, edge.source_id, edge.target_label, edge.target_id))
         return NeighborhoodResult(node=node, edges=edges, truncated_nodes=truncated_nodes, truncated_edges=truncated_edges)
+
+    @_locked
+    def list_trace_edges(
+        self, trace_id: str, relationship: str, *, incoming: bool = False, scope_key: str | None = None, limit: int = 50
+    ) -> EdgeResult:
+        """Read a trace relationship without spending its limit on component links."""
+        validate_node_id(trace_id)
+        validate_identifier(relationship, field="relationship")
+        if "Trace" not in self._labels() or relationship not in self._relationships():
+            return EdgeResult(items=[])
+        direction = (
+            f"(other:Trace)-[r:{relationship}]->(trace:Trace {{pk: $pk}})"
+            if incoming
+            else f"(trace:Trace {{pk: $pk}})-[r:{relationship}]->(other:Trace)"
+        )
+        source, target = ("other", "trace") if incoming else ("trace", "other")
+        rows = self._query(
+            f"MATCH {direction} RETURN {source} AS source, r, {target} AS target ORDER BY source.id, target.id LIMIT {int(limit) + 1}",
+            {"pk": _node_pk("Trace", trace_id, scope_key)},
+        )
+        edges = [edge for row in rows if (edge := _coerce_edge(row, source_key="source", target_key="target")) is not None]
+        edges.sort(key=lambda edge: (edge.source_id, edge.target_id))
+        return EdgeResult(items=edges[:limit], truncated=len(rows) > limit)
 
     @_locked
     def search(self, query: str, *, scope_key: str | None = None, limit: int = 20) -> SearchResult:

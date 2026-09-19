@@ -57,6 +57,9 @@ class _RecallState:
     related_findings: bool = False
     related_incomplete: bool = False
     omitted_anchors: list[_NodeRef] | None = None
+    dependency_notices: list[str] | None = None
+    dependency_unknown: bool = False
+    dependency_unknown_roots: list[str] | None = None
 
 
 def recall_graph_memory(
@@ -186,7 +189,153 @@ def recall_graph_memory(
         max_edges=max_edges,
         anchored_refs=anchored_refs,
     )
+    _review_dependencies(store, state, scope_key=scope_key, max_depth=max_depth, max_nodes=max_nodes, max_edges=max_edges)
     return _render_recall(query, state, token_budget=token_budget)
+
+
+def _review_dependencies(
+    store: GraphStoreAdapter,
+    state: _RecallState,
+    *,
+    scope_key: str | None,
+    max_depth: int,
+    max_nodes: int,
+    max_edges: int,
+) -> None:
+    """Flag conclusions that rely on changed premises using focused, bounded graph links."""
+    roots = list(
+        dict.fromkeys(
+            _NodeRef("Trace", trace_id)
+            for ref, record in state.nodes.items()
+            if (trace_id := ref.node_id if ref.label == "Trace" else record.node.properties.get("trace_id")) is not None
+            and isinstance(trace_id, str)
+        )
+    )
+    notices: list[str] = []
+    unknown_roots: list[str] = []
+    for root in roots:
+        inspected: set[str] = set()
+        read_nodes: set[str] = set()
+        used_edges = 0
+        unknown = False
+        has_dependencies = False
+        changes: set[tuple[str, str, str]] = set()
+
+        def visit(
+            trace_id: str,
+            path: set[str],
+            depth: int,
+            inspected: set[str] = inspected,
+            read_nodes: set[str] = read_nodes,
+            changes: set[tuple[str, str, str]] = changes,
+        ) -> None:
+            nonlocal has_dependencies, used_edges, unknown
+            if trace_id in path:
+                unknown = True
+                return
+            if trace_id in inspected:
+                return
+            if len(read_nodes) >= max_nodes and trace_id not in read_nodes:
+                unknown = True
+                return
+            trace = store.get_node("Trace", trace_id, scope_key=scope_key)
+            if trace is None:
+                unknown = True
+                return
+            inspected.add(trace_id)
+            read_nodes.add(trace_id)
+            if depth >= max_depth:
+                if store.list_trace_edges(trace_id, "BASED_ON", scope_key=scope_key, limit=1).items:
+                    has_dependencies = True
+                    unknown = True
+                return
+            remaining = max_edges - used_edges
+            if remaining <= 0:
+                unknown = True
+                return
+            dependencies = store.list_trace_edges(trace_id, "BASED_ON", scope_key=scope_key, limit=remaining)
+            has_dependencies |= bool(dependencies.items) or dependencies.truncated
+            unknown |= dependencies.truncated
+            used_edges += len(dependencies.items)
+            next_path = path | {trace_id}
+            for dependency in dependencies.items:
+                premise_id = dependency.target_id
+                if len(read_nodes) >= max_nodes and premise_id not in read_nodes:
+                    unknown = True
+                    continue
+                premise = store.get_node("Trace", premise_id, scope_key=scope_key)
+                if premise is None:
+                    unknown = True
+                    continue
+                read_nodes.add(premise_id)
+                _add_node(state, trace, distance=0, score=125, max_nodes=max_nodes)
+                _add_node(state, premise, distance=1, score=125, max_nodes=max_nodes)
+                _add_edge(state, dependency, distance=1, score=125, max_edges=max_edges)
+                if _NodeRef("Trace", premise_id) not in state.nodes:
+                    unknown = True
+                if ("Trace", trace_id, "BASED_ON", "Trace", premise_id) not in state.edges:
+                    unknown = True
+                if not premise.properties.get("evidence") and not premise.properties.get("depends_on") or (
+                    premise.properties.get("finding_type") == "state" and finding_observed_timestamp(premise) is None
+                ):
+                    unknown = True
+                for relationship in ("SUPERSEDES", "RESOLVES"):
+                    remaining = max_edges - used_edges
+                    if remaining <= 0:
+                        unknown = True
+                        break
+                    updates = store.list_trace_edges(premise_id, relationship, incoming=True, scope_key=scope_key, limit=remaining)
+                    unknown |= updates.truncated
+                    used_edges += len(updates.items)
+                    for update in updates.items:
+                        if len(read_nodes) >= max_nodes and update.source_id not in read_nodes:
+                            unknown = True
+                            continue
+                        successor = store.get_node("Trace", update.source_id, scope_key=scope_key)
+                        if successor is None:
+                            unknown = True
+                            continue
+                        read_nodes.add(successor.id)
+                        reviewed_count = 0
+                        if relationship == "RESOLVES":
+                            remaining = max_edges - used_edges
+                            if remaining <= 0:
+                                unknown = True
+                                continue
+                            reviewed = store.list_trace_edges(successor.id, "RESOLVES", scope_key=scope_key, limit=remaining)
+                            used_edges += len(reviewed.items)
+                            for reviewed_edge in reviewed.items:
+                                if len(read_nodes) >= max_nodes and reviewed_edge.target_id not in read_nodes:
+                                    unknown = True
+                                    break
+                                target = store.get_node("Trace", reviewed_edge.target_id, scope_key=scope_key)
+                                if target is None:
+                                    unknown = True
+                                    continue
+                                read_nodes.add(target.id)
+                                reviewed_count += target.properties.get("subject") == successor.properties.get("subject")
+                            unknown |= reviewed.truncated and reviewed_count < 2
+                        if valid_finding_link(successor, premise, relationship, reviewed_count=reviewed_count):
+                            changes.add((premise_id, successor.id, relationship))
+                            if store.list_trace_edges(successor.id, "BASED_ON", scope_key=scope_key, limit=1).items:
+                                unknown = True
+                            _add_node(state, successor, distance=1, score=125, max_nodes=max_nodes)
+                            _add_edge(state, update, distance=1, score=125, max_edges=max_edges)
+                            if _NodeRef("Trace", successor.id) not in state.nodes:
+                                unknown = True
+                            if ("Trace", successor.id, relationship, "Trace", premise_id) not in state.edges:
+                                unknown = True
+                visit(premise_id, next_path, depth + 1)
+
+        visit(root.node_id, set(), 0)
+        if changes:
+            details = ", ".join(f"{old} updated by {new} via {relationship}" for old, new, relationship in sorted(changes))
+            notices.append(f"Trace {root.node_id} needs recheck: supporting premise changed ({details}). The conclusion remains recorded.")
+        if has_dependencies and unknown:
+            state.dependency_unknown = True
+            unknown_roots.append(root.node_id)
+    state.dependency_notices = notices
+    state.dependency_unknown_roots = unknown_roots
 
 
 def _expand_subject_findings(
@@ -435,6 +584,12 @@ def _query_terms(query: str) -> set[str]:
 
 def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str:
     lines = [f"# Graph Memory Recall: {query}", ""]
+    if state.dependency_notices:
+        lines.extend(["## Dependency review", *state.dependency_notices, ""])
+    if state.dependency_unknown_roots:
+        lines.extend(
+            ["## Dependency coverage", *(f"Trace {trace_id}: dependency status unknown." for trace_id in state.dependency_unknown_roots), ""]
+        )
     if not state.nodes and not state.edges:
         lines.append("No matching graph memory found.")
         return "\n".join(lines).rstrip() + "\n"
@@ -479,7 +634,17 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
     if state.search_truncated:
         lines.append("Search results were truncated before traversal.")
     incomplete = state.related_findings and (state.related_incomplete or state.truncated_nodes or state.truncated_edges)
-    return _fit_token_budget(lines, token_budget, related_findings=state.related_findings, related_incomplete=incomplete)
+    prefix = ""
+    if state.dependency_unknown:
+        prefix += "Dependency status unknown; inspect dependencies.\n"
+    if state.dependency_notices:
+        prefix += "Some conclusions need recheck.\n"
+    return prefix + _fit_token_budget(
+        lines,
+        max(1, token_budget - (len(prefix) + 3) // 4),
+        related_findings=state.related_findings,
+        related_incomplete=incomplete,
+    )
 
 
 def _finding_history(state: _RecallState) -> list[str]:
