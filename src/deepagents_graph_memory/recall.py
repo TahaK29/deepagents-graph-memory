@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
-from deepagents_graph_memory.paths import neighborhood_path, node_path, parse_graph_path
+from deepagents_graph_memory.paths import node_path, parse_graph_path
 from deepagents_graph_memory.stores import GraphEdge, GraphNode, GraphStoreAdapter, JsonValue
 
 RecallMode = Literal["auto", "local", "deep"]
@@ -189,7 +189,7 @@ def _find_seed_nodes(
                 parsed = parse_graph_path(item.path)
             except GraphMemoryPathError:
                 continue
-            if parsed.kind not in {"node", "neighborhood"} or parsed.label is None or parsed.node_id is None:
+            if parsed.kind != "node" or parsed.label is None or parsed.node_id is None:
                 continue
             ref = _NodeRef(parsed.label, parsed.node_id)
             if ref not in seen:
@@ -205,7 +205,7 @@ def _seed_from_anchor(anchor: str) -> _NodeRef | None:
         parsed = parse_graph_path(anchor)
     except GraphMemoryPathError:
         return None
-    if parsed.kind not in {"node", "neighborhood"} or parsed.label is None or parsed.node_id is None:
+    if parsed.kind != "node" or parsed.label is None or parsed.node_id is None:
         return None
     return _NodeRef(parsed.label, parsed.node_id)
 
@@ -372,7 +372,6 @@ def _sorted_edges(records: Iterable[_EdgeRecord]) -> list[_EdgeRecord]:
 
 def _source_paths(state: _RecallState) -> list[str]:
     paths = {_prefixed(node_path(record.node.label, record.node.id)) for record in state.nodes.values()}
-    paths.update(_prefixed(neighborhood_path(record.edge.source_label, record.edge.source_id)) for record in state.edges.values())
     return sorted(paths)
 
 

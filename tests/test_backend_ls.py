@@ -40,7 +40,8 @@ def test_glob_matches_virtual_files():
 
     paths = {entry["path"] for entry in result.matches}
     assert "/nodes/service/langfuse.md" in paths
-    assert "/views/neighborhood/service/langfuse.md" in paths
+    assert not any("/views/" in path for path in paths)
+    assert not any("/views/" in entry["path"] for entry in backend.ls("/").entries)
 
 
 def test_glob_accepts_explicit_none_path():

@@ -1,7 +1,7 @@
 # - Checks that graph data turns into understandable text pages.
 # - Cases: graph structure, grouped connections, search results, and a note when some connections are left out.
 
-from deepagents_graph_memory.renderers import render_neighborhood, render_node, render_schema, render_search
+from deepagents_graph_memory.renderers import render_node, render_schema, render_search
 from deepagents_graph_memory.stores import GraphEdge, GraphNode, NeighborhoodResult, SearchItem, SearchResult
 
 
@@ -27,18 +27,17 @@ def test_render_node_groups_relationships():
 
     assert "# service: langfuse" in markdown
     assert "## Depends on" in markdown
-    assert "[redis](/nodes/service/redis.md)" in markdown
+    assert "[redis](/graph/nodes/service/redis.md)" in markdown
     assert "## Owns (incoming)" in markdown
     assert "## Affected (incoming)" in markdown
 
 
-def test_render_neighborhood_truncation():
+def test_render_node_truncation():
     node = GraphNode(label="service", id="langfuse")
     result = NeighborhoodResult(node=node, edges=[], truncated_edges=True)
 
-    markdown = render_neighborhood(result)
+    markdown = render_node(node, result)
 
-    assert "No relationships found." in markdown
     assert "Results truncated" in markdown
 
 
@@ -48,4 +47,4 @@ def test_render_search_results():
     markdown = render_search("langfuse", result)
 
     assert "# Graph Search: langfuse" in markdown
-    assert "[service: langfuse](/nodes/service/langfuse.md)" in markdown
+    assert "[service: langfuse](/graph/nodes/service/langfuse.md)" in markdown

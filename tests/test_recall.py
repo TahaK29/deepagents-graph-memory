@@ -89,6 +89,7 @@ def test_recall_uses_graph_path_anchor_as_seed():
 
     assert "service: langfuse" in content
     assert "DEPENDS_ON" in content
+    assert "/graph/views/neighborhood/" not in content
 
 
 def test_recall_stops_at_edge_budget():

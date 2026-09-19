@@ -12,7 +12,7 @@ from urllib.parse import quote, unquote
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
 
-PathKind = Literal["root", "schema", "index", "node", "neighborhood", "search"]
+PathKind = Literal["root", "schema", "index", "node", "search"]
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 NAMESPACE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9\-_.@+:~]+$")
@@ -204,16 +204,6 @@ def parse_graph_path(path: str) -> ParsedGraphPath:
             raise GraphMemoryPathError(str(exc)) from exc
         return ParsedGraphPath(kind="node", path=normalized, label=label, node_id=node_id, had_graph_prefix=had_graph_prefix)
 
-    if len(parts) == 4 and parts[:2] == ["views", "neighborhood"] and parts[3].endswith(".md"):
-        label = unquote(parts[2])
-        node_id = unquote(parts[3][:-3])
-        try:
-            validate_identifier(label, field="label")
-            validate_node_id(node_id)
-        except GraphMemoryValidationError as exc:
-            raise GraphMemoryPathError(str(exc)) from exc
-        return ParsedGraphPath(kind="neighborhood", path=normalized, label=label, node_id=node_id, had_graph_prefix=had_graph_prefix)
-
     if len(parts) == 2 and parts[0] == "search" and parts[1].endswith(".md"):
         query = validate_search_query(unquote(parts[1][:-3]))
         return ParsedGraphPath(kind="search", path=normalized, query=query, had_graph_prefix=had_graph_prefix)
@@ -233,16 +223,3 @@ def node_path(label: str, node_id: str) -> str:
         Virtual node path.
     """
     return f"/nodes/{encode_path_segment(label)}/{encode_path_segment(node_id)}.md"
-
-
-def neighborhood_path(label: str, node_id: str) -> str:
-    """Return the virtual path for a node neighborhood page.
-
-    Args:
-        label: Node label.
-        node_id: Node id.
-
-    Returns:
-        Virtual neighborhood path.
-    """
-    return f"/views/neighborhood/{encode_path_segment(label)}/{encode_path_segment(node_id)}.md"

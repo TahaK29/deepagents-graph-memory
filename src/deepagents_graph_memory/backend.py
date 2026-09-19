@@ -33,7 +33,6 @@ from deepagents.backends.protocol import (
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
 from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 from deepagents_graph_memory.paths import (
-    neighborhood_path,
     node_path,
     normalize_graph_path,
     parse_graph_path,
@@ -43,7 +42,7 @@ from deepagents_graph_memory.paths import (
 )
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
-from deepagents_graph_memory.renderers import render_index, render_neighborhood, render_node, render_schema, render_search
+from deepagents_graph_memory.renderers import render_index, render_node, render_schema, render_search
 from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata
 
 READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
@@ -62,7 +61,6 @@ class GraphMemoryBackend(BackendProtocol):
         namespace: Namespace = None,
         max_nodes: int = 50,
         max_edges: int = 100,
-        neighborhood_depth: int = 1,
     ) -> None:
         """Initialize a graph memory backend.
 
@@ -70,14 +68,12 @@ class GraphMemoryBackend(BackendProtocol):
             store: Internal graph store adapter.
             namespace: Optional Deep Agents-style namespace factory or static namespace.
             max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in neighborhood views.
-            neighborhood_depth: Default neighborhood traversal depth.
+            max_edges: Maximum edges rendered in node pages.
         """
         self.store = store
         self.namespace = namespace
         self.max_nodes = max_nodes
         self.max_edges = max_edges
-        self.neighborhood_depth = neighborhood_depth
 
     @classmethod
     def create(
@@ -86,15 +82,13 @@ class GraphMemoryBackend(BackendProtocol):
         namespace: Namespace = None,
         max_nodes: int = 50,
         max_edges: int = 100,
-        neighborhood_depth: int = 1,
     ) -> GraphMemoryBackend:
         """Create an in-memory Kuzu graph memory backend.
 
         Args:
             namespace: Optional Deep Agents-style namespace factory or static namespace.
             max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in neighborhood views.
-            neighborhood_depth: Default neighborhood traversal depth.
+            max_edges: Maximum edges rendered in node pages.
 
         Returns:
             Configured graph memory backend.
@@ -104,7 +98,6 @@ class GraphMemoryBackend(BackendProtocol):
             namespace=namespace,
             max_nodes=max_nodes,
             max_edges=max_edges,
-            neighborhood_depth=neighborhood_depth,
         )
 
     def ls(self, path: str) -> LsResult:
@@ -144,19 +137,6 @@ class GraphMemoryBackend(BackendProtocol):
                     max_edges=self.max_edges,
                 )
                 content = render_node(node, neighborhood)
-            elif parsed.kind == "neighborhood":
-                assert parsed.label is not None and parsed.node_id is not None
-                neighborhood = self.store.get_neighbors(
-                    parsed.label,
-                    parsed.node_id,
-                    scope_key=scope_key,
-                    depth=self.neighborhood_depth,
-                    max_nodes=self.max_nodes,
-                    max_edges=self.max_edges,
-                )
-                if neighborhood is None:
-                    return ReadResult(error=f"Graph node '{parsed.label}/{parsed.node_id}' not found.")
-                content = render_neighborhood(neighborhood)
             else:
                 assert parsed.query is not None
                 content = render_search(parsed.query, self.store.search(parsed.query, scope_key=scope_key, limit=self.max_nodes))
@@ -437,7 +417,6 @@ class GraphMemoryBackend(BackendProtocol):
                 {"path": "/nodes/", "is_dir": True, "size": 0, "modified_at": ""},
                 {"path": "/schema.md", "is_dir": False, "size": 0, "modified_at": ""},
                 {"path": "/search/", "is_dir": True, "size": 0, "modified_at": ""},
-                {"path": "/views/", "is_dir": True, "size": 0, "modified_at": ""},
             ]
         if normalized == "/nodes/":
             labels = self.store.list_labels(scope_key=scope_key, limit=self.max_nodes)
@@ -448,17 +427,6 @@ class GraphMemoryBackend(BackendProtocol):
                 label = validate_identifier(parts[1], field="label")
                 ids = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
                 return [{"path": node_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""} for node_id in ids.items]
-        if normalized == "/views/":
-            return [{"path": "/views/neighborhood/", "is_dir": True, "size": 0, "modified_at": ""}]
-        if normalized == "/views/neighborhood/":
-            labels = self.store.list_labels(scope_key=scope_key, limit=self.max_nodes)
-            return [{"path": f"/views/neighborhood/{label}/", "is_dir": True, "size": 0, "modified_at": ""} for label in labels.items]
-        if normalized.startswith("/views/neighborhood/") and normalized.endswith("/"):
-            parts = [part for part in normalized.split("/") if part]
-            if len(parts) == 3:
-                label = validate_identifier(parts[2], field="label")
-                ids = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
-                return [{"path": neighborhood_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""} for node_id in ids.items]
         return []
 
     def _candidate_files(self, *, scope_key: str | None) -> list[FileInfo]:
@@ -469,7 +437,6 @@ class GraphMemoryBackend(BackendProtocol):
         for label in self.store.list_labels(scope_key=scope_key, limit=self.max_nodes).items:
             for node_id in self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes).items:
                 files.append({"path": node_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""})
-                files.append({"path": neighborhood_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""})
         return files
 
     def _scope_key(self) -> str | None:

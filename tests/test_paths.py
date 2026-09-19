@@ -19,15 +19,13 @@ def test_parse_prefixed_and_stripped_paths():
     assert prefixed.had_graph_prefix
 
 
-def test_parse_neighborhood_and_search_paths():
-    neighborhood = parse_graph_path("/views/neighborhood/service/langfuse.md")
+def test_parse_search_path_and_reject_removed_neighborhood_path():
     search = parse_graph_path("/graph/search/langfuse.md")
 
-    assert neighborhood.kind == "neighborhood"
-    assert neighborhood.label == "service"
-    assert neighborhood.node_id == "langfuse"
     assert search.kind == "search"
     assert search.query == "langfuse"
+    with pytest.raises(GraphMemoryPathError):
+        parse_graph_path("/views/neighborhood/service/langfuse.md")
 
 
 def test_rejects_path_traversal():

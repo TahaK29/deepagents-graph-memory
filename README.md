@@ -1,6 +1,8 @@
 # deepagents-graph-memory
 
-A graph-native context scratchpad for LangChain Deep Agents. Record structured reasoning traces, build connected work state, and recall multi-hop context -- all backed by Kuzu.
+An experimental graph-backed workflow and trace store for LangChain Deep Agents. It records linked project context in Kuzu, supports keyword search and bounded traversal, and exposes read-only Markdown views for inspection.
+
+**Debugging a missing graph fact?** See [Inspecting the graph](#inspecting-the-graph) for a copyable Python example that needs no model or provider key.
 
 [![Status: Experimental](https://img.shields.io/badge/Status-Experimental-F59E0B)](https://github.com/TahaK29/deepagents-graph-memory)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
@@ -14,33 +16,19 @@ A graph-native context scratchpad for LangChain Deep Agents. Record structured r
 
 ## Motivation
 
-This project is an implementation of the ideas from Neo4j's [*From Recall to Reasoning: How Context Graphs Upgrade an Agent's Brain*](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/), applied to the [LangChain Deep Agents](https://github.com/langchain-ai/deepagents) framework.
-
-The paper identifies three levels of agent memory:
-
-| Level | Memory Type | Capability |
-|---|---|---|
-| **Level 1** | Reactive | Short-term only -- agents respond to immediate observations without learning |
-| **Level 2** | Recall | Long-term via vector embeddings -- agents remember past events but lack explicit relationships |
-| **Level 3** | Reasoning | Context graphs -- agents understand underlying rules and apply knowledge to novel situations |
-
-Most agent memory systems stop at Level 2: they store embeddings and retrieve by similarity. But **similarity is not relevance** -- as data grows, vector recall generates noise and loses the causal chains that explain *why* something happened, not just *what* happened.
-
-Context graphs solve this by structuring agent experiences as a web of relationships (Situation &rarr; Rationale &rarr; Action &rarr; Outcome), enabling multi-hop reasoning, knowledge transfer across tasks, and the ability to unlearn outdated information.
-
-`deepagents-graph-memory` brings this Level 3 context graph to Deep Agents which is currently at level 2, replacing the flat virtual filesystem with a graph-native scratchpad backed by [Kuzu](https://kuzudb.com). The goal: agents that don't just recall -- they reason.
+Neo4j's [context graph article](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/) inspired this project. The package records supplied situations, rationales, actions, outcomes, artifacts, and links so agents can retrieve connected work context. It does not verify causal claims, infer new relationships, transfer knowledge automatically, or unlearn outdated facts. A rationale or causal label is an assertion supplied by the caller.
 
 ## What It Does
 
 | Structured Traces | Graph Recall | Virtual Graph Views |
 |---|---|---|
-| Situation &rarr; Rationale &rarr; Action &rarr; Outcome | Full-text search + bounded traversal | Read-only `/graph/...` markdown projections |
-| Connected reasoning chains | Anchor-based seed expansion | Schema, index, node, neighborhood, search |
-| Domain-agnostic trace shape | Budget-aware (tokens, depth, nodes, edges) | Inspectable by agents, tests, and humans |
+| Situation &rarr; Rationale &rarr; Action &rarr; Outcome | Keyword search + bounded traversal | Read-only `/graph/...` markdown projections |
+| Caller-supplied links and metadata | Anchor-based seed expansion | Schema, index, node, search |
+| Workflow and project context | Approximate output sizing plus depth, node, and edge limits | Inspectable through backend methods |
 
 This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
-**Key features:** controlled graph writes through LangChain tools, VGS harness profile that hides default VFS tools, multi-tenant scoping via namespace factory, and budgeted recall with configurable limits.
+The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu, so that data disappears when the process ends.
 
 ## Quick Start
 
@@ -58,7 +46,7 @@ from deepagents_graph_memory import (
 
 MODEL = "google_genai:gemini-3.5-flash"
 
-# Hide default VFS tools, enable graph-focused operation
+# Hide default VFS tools and add graph prompt guidance
 register_vgs_harness_profile(MODEL)
 
 # In-memory Kuzu graph -- no disk, no config
@@ -66,11 +54,13 @@ graph_backend = GraphMemoryBackend.create()
 
 agent = create_deep_agent(
     model=MODEL,
-    tools=[*graph_memory_tools(graph_backend)],
+    tools=[*graph_memory_tools(graph_backend)],  # pass graph tools explicitly
     memory=["/graph/index.md", "/graph/schema.md"],
     backend=graph_backend,
 )
 ```
+
+Configure the selected model provider integration and credentials separately. The no-provider-key example below only exercises backend inspection.
 
 ## How It Works
 
@@ -105,10 +95,10 @@ Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to
 
 `recall_graph_memory` searches for seed facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Pass anchors (file paths, run IDs, task IDs) to give recall a concrete starting point.
 
-Recall uses Kuzu full-text (keyword) search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. No vector/embedding search is used.
+Recall uses Kuzu keyword search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. The token budget estimates output size; it is not an exact token cap. No vector/embedding search is used.
 
 ```python
-recall_graph_memory("what services did incident 123 affect and what do they depend on?")
+graph_backend.recall_graph_memory("what services did incident 123 affect and what do they depend on?")
 ```
 
 ## Graph Tools
@@ -145,19 +135,49 @@ The backend projects graph state into read-only markdown paths:
 | `/graph/schema.md` | Current graph schema |
 | `/graph/index.md` | Graph memory landing page |
 | `/graph/nodes/{label}/{id}.md` | Single node with properties and relationships |
-| `/graph/views/neighborhood/{label}/{id}.md` | Node with immediate connections |
 | `/graph/search/{query}.md` | Search results with preview text |
 
-These are inspectable views, not storage. Writes go through graph tools, not file operations.
+These are generated virtual paths, not files on disk or browser links. Node pages include stored properties, provenance when present, and bounded one-hop relationships. Writes go through graph tools, not file operations.
+
+### Inspecting the graph
+
+Use backend methods to check a recorded fact directly, even when recall does not select it. This example runs locally without an LLM or provider key:
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+
+backend = GraphMemoryBackend.create()
+trace_id = backend.record_graph_trace(
+    trace_id="debug-trace-1",
+    situation="scope test failed",
+    rationale="a graph read might use the wrong scope",
+    action="checked the read path",
+    outcome="scope test passed",
+    source="tests/test_scope.py",
+)
+
+print(trace_id)
+print([entry["path"] for entry in backend.ls("/graph/nodes/Trace/").entries])
+node_path = f"/graph/nodes/Trace/{trace_id}.md"
+node = backend.read(node_path)
+if node.error:
+    raise RuntimeError(node.error)
+print(node.file_data["content"])
+print(backend.read("/graph/schema.md").file_data["content"])
+print(backend.read("/graph/search/scope.md").file_data["content"])
+```
+
+For a missing answer, read the exact known node path first. A "not found" error means that node is absent from the active scope; a returned page lets you inspect its text, provenance, and relationships. Then try `backend.recall_graph_memory("scope test", anchors=[node_path])` to start recall at that node. `ls()` helps discover paths, but its output is bounded by `max_nodes`, so an absent listing entry does not prove absence; increase `max_nodes` if needed. Inspection bypasses recall's relevance selection, while node relationships still obey `max_nodes` and `max_edges`. `read()` also accepts line `offset` and `limit`.
 
 ## VGS Mode
 
 When VGS (Virtual Graph System) is enabled via `register_vgs_harness_profile`:
 
-- Graph memory tools are exposed
 - Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
-- The agent works through graph tools instead of the filesystem surface
-- VGS prompt guidance is injected automatically
+- VGS prompt guidance is added
+- The caller passes `graph_memory_tools(graph_backend)` explicitly; the profile does not install them
+
+With file tools hidden, agents use `recall_graph_memory`, which queries the graph store directly. `memory=["/graph/index.md", "/graph/schema.md"]` loads those two views into agent context; it does not enable interactive graph browsing. Developers can still inspect through `GraphMemoryBackend.ls()`, `read()`, `glob()`, and `grep()`.
 
 VGS should be **off by default** in a normal Deep Agents install. Enable it only when graph-structured context is needed.
 
@@ -206,16 +226,13 @@ graph LR
     subgraph VGSMode ["VGS Mode"]
         VFSHidden["VFS Tools<br/><s>hidden</s>"]
         GraphTools["Graph Tools<br/>recall_graph_memory<br/>record_graph_trace"]
-        GraphViews["/graph/ Views<br/>schema, index, nodes,<br/>neighborhood, search"]
     end
 
-    Default -->|"register_vgs_harness_profile()"| VGSMode
+    Default -->|"register profile; pass graph tools"| VGSMode
     VFSHidden ~~~ GraphTools
-    GraphTools --> GraphViews
 
     style VFSHidden fill:#991b1b,stroke:#7f1d1d,color:#fecaca
     style GraphTools fill:#065f46,stroke:#064e3b,color:#a7f3d0
-    style GraphViews fill:#1e40af,stroke:#1e3a8a,color:#bfdbfe
 ```
 
 ### Recall Pipeline
@@ -269,7 +286,7 @@ Incident 123 RESOLVED_BY "Restart Ingestion Workers" Runbook
 
 Recall query:
 ```python
-recall_graph_memory("what services did incident 123 affect and what do they depend on?")
+graph_backend.recall_graph_memory("what services did incident 123 affect and what do they depend on?")
 ```
 
 ## Installation

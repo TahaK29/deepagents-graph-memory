@@ -39,7 +39,7 @@ Default Deep Agents
 VGS mode
   VFS tools hidden
   Kuzu graph backend on
-  graph tools on
+  graph tools passed explicitly by caller
   structured entities, relationships, provenance, decisions, outcomes
 ```
 
@@ -85,15 +85,14 @@ The graph is projected into paths such as:
 /graph/index.md
 /graph/schema.md
 /graph/nodes/{label}/{id}.md
-/graph/views/neighborhood/{label}/{id}.md
 /graph/search/{query}.md
 ```
 
 These paths exist because Deep Agents backends speak file-like paths internally, and
 they remain useful for memory loading, direct backend calls, tests, and debugging.
 In the intended VGS mode, the agent-facing read path is `recall_graph_memory`, not
-normal VFS file tools. Writes go through graph tools so validation, provenance, and
-schema discipline can be enforced.
+normal VFS file tools. The caller passes graph tools explicitly. Writes go through
+graph tools so validation, provenance, and schema discipline can be enforced.
 
 ## Storage Lifetime
 
@@ -252,12 +251,11 @@ traceable workflow graphs rather than arbitrary node and edge spam.
 
 The graph read path should be budgeted and targeted.
 
-The agent should usually read graph context through:
-
-- `recall_graph_memory(query)` for natural-language recall.
-- `/graph/nodes/{label}/{id}.md` for one entity.
-- `/graph/views/neighborhood/{label}/{id}.md` for connected context.
-- `/graph/search/{query}.md` for literal search.
+The agent should usually read graph context through `recall_graph_memory(query)`.
+With VFS tools hidden, developers can call backend `read()` on
+`/graph/nodes/{label}/{id}.md` to inspect one entity and bounded one-hop
+relationships, or `/graph/search/{query}.md` for keyword and relationship-label
+search. Backend `ls()` discovers paths, subject to its node limit.
 
 The recall flow should:
 

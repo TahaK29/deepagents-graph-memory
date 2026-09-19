@@ -25,7 +25,6 @@ def render_index() -> str:
             "## Paths",
             "- `/graph/schema.md` - graph schema",
             "- `/graph/nodes/{label}/{id}.md` - node page",
-            "- `/graph/views/neighborhood/{label}/{id}.md` - immediate relationships",
             "- `/graph/search/{query}.md` - graph search results",
             "",
             "Use graph memory tools to add or update graph facts. Generated graph views are read-only.",
@@ -58,6 +57,11 @@ def render_node(node: GraphNode, neighborhood: NeighborhoodResult | None = None)
     """
     lines = [f"# {node.label}: {node.id}", ""]
     lines.extend(_render_properties(node.properties))
+    provenance_keys = ("source", "source_agent", "created_by", "created_by_agent", "created_at", "updated_at")
+    provenance = {key: node.properties[key] for key in provenance_keys if key in node.properties}
+    if provenance:
+        lines.extend(["", "## Provenance"])
+        lines.extend(f"- **{key}**: {_format_value(value)}" for key, value in provenance.items())
     edges = neighborhood.edges if neighborhood else []
     if edges:
         lines.append("")
@@ -65,29 +69,6 @@ def render_node(node: GraphNode, neighborhood: NeighborhoodResult | None = None)
     if neighborhood and (neighborhood.truncated_edges or neighborhood.truncated_nodes):
         lines.append("")
         lines.append(_truncation_note(neighborhood.truncated_nodes, neighborhood.truncated_edges))
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_neighborhood(result: NeighborhoodResult) -> str:
-    """Render a node neighborhood page.
-
-    Args:
-        result: Neighborhood query result.
-
-    Returns:
-        Markdown neighborhood page.
-    """
-    lines = [f"# Neighborhood: {result.node.label}: {result.node.id}", ""]
-    lines.extend(_render_properties(result.node.properties))
-    if result.edges:
-        lines.append("")
-        lines.extend(_render_edge_sections(result.node, result.edges))
-    else:
-        lines.append("")
-        lines.append("No relationships found.")
-    if result.truncated_edges or result.truncated_nodes:
-        lines.append("")
-        lines.append(_truncation_note(result.truncated_nodes, result.truncated_edges))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -107,7 +88,7 @@ def render_search(query: str, result: SearchResult) -> str:
     else:
         for item in result.items:
             suffix = f" - {item.text}" if item.text else ""
-            lines.append(f"- [{item.title}]({item.path}){suffix}")
+            lines.append(f"- [{item.title}](/graph{item.path}){suffix}")
     if result.truncated:
         lines.append("")
         lines.append("Results truncated. Refine the query or increase the limit.")
@@ -141,12 +122,14 @@ def _render_properties(properties: Mapping[str, object]) -> list[str]:
 def _render_edge_sections(node: GraphNode, edges: Iterable[GraphEdge]) -> list[str]:
     grouped: dict[str, list[str]] = defaultdict(list)
     for edge in edges:
+        details = {key: value for key, value in edge.properties.items() if key not in {"scope_key", "search_text"}}
+        suffix = f" — {', '.join(f'{key}: {_format_value(value)}' for key, value in sorted(details.items()))}" if details else ""
         if edge.source_label == node.label and edge.source_id == node.id:
             heading = _outgoing_heading(edge.relationship)
-            grouped[heading].append(_node_link(edge.target_label, edge.target_id))
+            grouped[heading].append(_node_link(edge.target_label, edge.target_id) + suffix)
         elif edge.target_label == node.label and edge.target_id == node.id:
             heading = _incoming_heading(edge.relationship)
-            grouped[heading].append(_node_link(edge.source_label, edge.source_id))
+            grouped[heading].append(_node_link(edge.source_label, edge.source_id) + suffix)
     lines: list[str] = []
     for heading in sorted(grouped):
         lines.append(f"## {heading}")
@@ -159,7 +142,7 @@ def _render_edge_sections(node: GraphNode, edges: Iterable[GraphEdge]) -> list[s
 
 
 def _node_link(label: str, node_id: str) -> str:
-    return f"[{node_id}]({node_path(label, node_id)})"
+    return f"[{node_id}](/graph{node_path(label, node_id)})"
 
 
 def _outgoing_heading(relationship: str) -> str:

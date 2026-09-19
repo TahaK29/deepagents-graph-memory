@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
-from deepagents_graph_memory.paths import neighborhood_path, node_path, validate_identifier, validate_node_id
+from deepagents_graph_memory.paths import node_path, validate_identifier, validate_node_id
 from deepagents_graph_memory.stores import (
     GraphEdge,
     GraphNode,
@@ -381,7 +381,7 @@ class KuzuGraphStore:
                 if edge is None:
                     continue
                 item = SearchItem(
-                    path=neighborhood_path(edge.source_label, edge.source_id),
+                    path=node_path(edge.source_label, edge.source_id),
                     title=f"{edge.source_id} {edge.relationship} {edge.target_id}",
                     text=_summarize_properties(edge.properties),
                 )
