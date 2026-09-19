@@ -35,23 +35,26 @@ The namespace option scopes graph data; it is not an authorization boundary, and
 Create one store and pass it to each backend. Use the same project namespace so both writers can inspect the same graph. Agent and subagent IDs are supplied by the caller; they are not inferred from the agent runtime.
 
 ```python
-from deepagents_graph_memory import GraphMemoryBackend
+from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, make_graph_subject
 from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 
 store = KuzuGraphStore.memory()
 parent = GraphMemoryBackend(store, namespace=("project", "demo"))
 subagent = GraphMemoryBackend(store, namespace=("project", "demo"))
+subject = make_graph_subject("src/parser.py", "empty-field parsing", "linux")
+# Give the same subject to each worker when creating its tools.
+worker_record = next(tool for tool in graph_memory_tools(subagent, bound_subject=subject) if tool.name == "record_graph_trace")
 
 parent.record_graph_trace(
-    situation="test failed", rationale="the parser missed an empty field",
+    situation="test failed at revision a1", rationale="the parser missed an empty field",
     action="asked a subagent to inspect the parser", outcome="cause identified",
-    run_id="run-1", agent_id="parent",
+    run_id="run-1", agent_id="parent", subject=subject,
 )
-subagent.record_graph_trace(
-    situation="parser skipped an empty field", rationale="split removed the field",
-    action="patched the parser", outcome="test passed",
-    artifacts=["src/parser.py"], run_id="run-1", agent_id="parent", subagent_id="parser-debugger",
-)
+worker_record.invoke({
+    "situation": "parser skipped an empty field at revision a1", "rationale": "split removed the field",
+    "action": "patched the parser", "outcome": "test passed at revision b2",
+    "artifacts": ["src/parser.py"], "run_id": "run-1", "agent_id": "parent", "subagent_id": "parser-debugger",
+})  # The binding supplies subject even though this call omits it.
 print(parent.ls("/graph/nodes/Trace/").entries)
 print(parent.read("/graph/search/parser.md").file_data["content"])
 ```
@@ -117,7 +120,12 @@ lion is dangerous --JUSTIFIED--> sheep ran away
 sheep ran away --PRODUCED--> sheep survived
 ```
 
-Related findings can share a narrow `subject` within a namespace. `observed_at` is
+Related findings can share a narrow `subject` within a namespace. Create it once
+with `make_graph_subject(entity, aspect, environment)` and pass it to workers with
+`graph_memory_tools(backend, bound_subject=subject)`. A worker may omit `subject`
+when recording a trace; a different explicit subject is rejected. Keep changing
+revisions in the trace context or evidence, and use separate subjects for environments
+whose states should not be compared as one question. `observed_at` is
 the time of the observation, while server-generated `recorded_at` is when the trace
 was saved. A caller may explicitly supersede an earlier **state** finding only
 with evidence and a strictly newer observation. The old trace and parallel newer

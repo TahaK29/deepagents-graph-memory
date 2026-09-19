@@ -53,6 +53,11 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
   failed attempts, explain a decision, or connect evidence to an outcome.
 - Record failures and dead ends with their outcomes so future work can avoid repeating them.
 - For related findings, supply a stable, narrow `subject` within the project namespace.
+  Reuse the exact subject key supplied by the parent or application for the same
+  question. When a write tool has a bound subject, omit `subject` in the call. Do
+  not invent a new key for another report of that question. Keep changing revisions
+  in trace context or evidence, and use separate subjects for environments whose
+  states should not be compared as one question.
   Supply `observed_at` only from known evidence or tool output; do not guess from the
   recording clock. Use `finding_type="state"` for mutable observed state and
   `"interpretation"` for explanations. Use `supersedes` only for an evidenced newer

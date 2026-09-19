@@ -15,11 +15,12 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.errors import GraphMemoryError
+from deepagents_graph_memory.errors import GraphMemoryError, GraphMemoryValidationError
+from deepagents_graph_memory.paths import validate_subject
 from deepagents_graph_memory.recall import RecallMode
 
 
-def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_writes: bool = False) -> list[Any]:
+def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_writes: bool = False, bound_subject: str | None = None) -> list[Any]:
     """Create safe graph memory recall and write tools.
 
     Args:
@@ -27,10 +28,13 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
         include_low_level_writes: When true, expose generic node, edge, and
             graph-document write tools. Keep this false for unconstrained agent
             use; prefer domain-specific tools or `record_graph_trace`.
+        bound_subject: Optional subject all trace writes from these tools must use.
 
     Returns:
         LangChain tool objects for controlled graph writes.
     """
+    if bound_subject is not None:
+        bound_subject = validate_subject(bound_subject)
 
     @tool
     def recall_graph_memory(
@@ -131,6 +135,10 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
     ) -> str:
         """Record a Situation/Rationale/Action/Outcome trace for long-running agent work."""
         try:
+            if bound_subject is not None:
+                if subject is not None and validate_subject(subject) != bound_subject:
+                    raise GraphMemoryValidationError("subject differs from the bound subject.")
+                subject = bound_subject
             if operation_id is None and runtime is not None and runtime.tool_call_id:
                 thread_id = runtime.config.get("configurable", {}).get("thread_id")
                 operation_id = json.dumps(["tool-call", thread_id, runtime.tool_call_id], separators=(",", ":"))

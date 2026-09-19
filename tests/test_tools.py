@@ -3,12 +3,15 @@
 
 import asyncio
 
+import pytest
 from langchain_core.messages import AIMessage
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import MessagesState
 from langgraph.prebuilt import ToolNode
 
+from deepagents_graph_memory import make_graph_subject
 from deepagents_graph_memory.backend import GraphMemoryBackend
+from deepagents_graph_memory.errors import GraphMemoryValidationError
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -38,6 +41,27 @@ def test_graph_memory_tools_default_to_structured_trace_writes():
     tools = {tool.name: tool for tool in graph_memory_tools(backend)}
 
     assert set(tools) == {"recall_graph_memory", "record_graph_trace"}
+
+
+def test_bound_subject_is_shared_and_cannot_be_overridden():
+    backend = GraphMemoryBackend.create()
+    subject = make_graph_subject("tests/test_auth.py::test_login", "result", "linux")
+    workers = [{item.name: item for item in graph_memory_tools(backend, bound_subject=subject)}["record_graph_trace"] for _ in range(2)]
+    base = {"rationale": "test output", "action": "checked", "outcome": "failed"}
+    assert workers[0].invoke({**base, "situation": "login test failed"}).startswith("Recorded graph trace")
+    assert workers[1].invoke({**base, "situation": "auth check failed", "subject": f" {subject} "}).startswith("Recorded graph trace")
+    assert len(backend.store.list_node_ids("Trace").items) == 2
+    assert len(backend.store.list_node_ids("Subject").items) == 1
+    assert workers[0].invoke({**base, "situation": "wrong", "subject": "other"}).startswith("Error: ")
+    assert len(backend.store.list_node_ids("Trace").items) == 2
+    unbound = {item.name: item for item in graph_memory_tools(backend)}["record_graph_trace"]
+    assert unbound.invoke({**base, "situation": "separate", "subject": "other"}).startswith("Recorded graph trace")
+    assert len(backend.store.list_node_ids("Subject").items) == 2
+
+
+def test_bound_subject_is_validated_when_tools_are_created():
+    with pytest.raises(GraphMemoryValidationError, match="subject"):
+        graph_memory_tools(GraphMemoryBackend.create(), bound_subject=" ")
 
 
 def test_trace_tool_preserves_direct_invocation_and_hides_runtime_from_model():

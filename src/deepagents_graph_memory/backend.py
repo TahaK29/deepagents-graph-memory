@@ -40,6 +40,7 @@ from deepagents_graph_memory.paths import (
     validate_identifier,
     validate_namespace,
     validate_node_id,
+    validate_subject,
 )
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
@@ -313,9 +314,7 @@ class GraphMemoryBackend(BackendProtocol):
         artifacts = [_validate_trace_text(value, field="artifact") for value in artifacts or []]
         evidence = [_validate_trace_text(value, field="evidence") for value in evidence or []]
         if subject is not None:
-            subject = _validate_trace_text(subject, field="subject")
-            if len(subject) > 512:
-                raise GraphMemoryValidationError("subject must be at most 512 characters.")
+            subject = validate_subject(subject)
         if not isinstance(finding_type, str) or finding_type not in {"state", "interpretation"}:
             raise GraphMemoryValidationError("finding_type must be state or interpretation.")
         observed_at = _normalize_observed_at(observed_at) if observed_at is not None else None

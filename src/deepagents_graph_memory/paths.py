@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -18,6 +19,33 @@ IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 NAMESPACE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9\-_.@+:~]+$")
 MAX_ID_LENGTH = 256
 MAX_QUERY_LENGTH = 512
+
+
+def validate_subject(value: str) -> str:
+    """Validate a trace subject using the backend's existing text rules."""
+    if not isinstance(value, str):
+        raise GraphMemoryValidationError("subject must be a string.")
+    subject = value.strip()
+    if not subject:
+        raise GraphMemoryValidationError("subject must not be empty.")
+    if any(ord(char) < 32 and char not in "\n\r\t" for char in subject):
+        raise GraphMemoryValidationError("subject must not contain NUL bytes or unsafe control characters.")
+    if len(subject) > 512:
+        raise GraphMemoryValidationError("subject must be at most 512 characters.")
+    return subject
+
+
+def make_graph_subject(entity: str, aspect: str, environment: str) -> str:
+    """Build one stable subject key for an entity, aspect, and environment."""
+    parts = []
+    for field, value in (("entity", entity), ("aspect", aspect), ("environment", environment)):
+        if not isinstance(value, str) or not value.strip():
+            raise GraphMemoryValidationError(f"{field} must be a nonempty string.")
+        part = value.strip()
+        if any(ord(char) < 32 or ord(char) == 127 for char in part):
+            raise GraphMemoryValidationError(f"{field} must not contain control characters.")
+        parts.append(part)
+    return validate_subject(json.dumps(parts, separators=(",", ":")))
 
 
 @dataclass(frozen=True)
