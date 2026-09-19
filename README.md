@@ -2,6 +2,8 @@
 
 An experimental graph-backed workflow and trace store for LangChain Deep Agents. It records linked project context in Kuzu, supports keyword search and bounded traversal, and exposes read-only Markdown views for inspection.
 
+The [workflow evaluation](evals/README.md) runs twelve offline integration scenarios and offers an opt-in, bounded graph-versus-notes model comparison. Offline passes verify retrieval mechanics, not improved model decisions.
+
 **Debugging a missing graph fact?** See [Inspecting the graph](#inspecting-the-graph) for a copyable Python example that needs no model or provider key.
 
 [![Status: Experimental](https://img.shields.io/badge/Status-Experimental-F59E0B)](https://github.com/TahaK29/deepagents-graph-memory)
@@ -258,6 +260,8 @@ Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to
 ### Graph Recall
 
 `recall_graph_memory` searches for seed facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Pass anchors (file paths, run IDs, task IDs) to give recall a concrete starting point.
+
+Matching generated trace components and paths are summarized once in recall. Explicit component anchors, custom nodes with different content, and direct `/graph/...` debug views remain available.
 
 Recall uses Kuzu keyword search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. The token budget estimates output size; it is not an exact token cap. No vector/embedding search is used.
 

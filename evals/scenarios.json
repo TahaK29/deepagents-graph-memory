@@ -1,0 +1,1321 @@
+[
+  {
+    "id": "latest-long-history",
+    "question": "Does the bounded history justify acting as if the parser is currently passed?",
+    "anchor": "history-00",
+    "records": [
+      {
+        "trace_id": "history-00",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [],
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-00",
+            "locator": "logs/pytest-history-00.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-01",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-00"
+        ],
+        "observed_at": "2026-09-19T10:01:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-01",
+            "locator": "logs/pytest-history-01.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:01:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-02",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-01"
+        ],
+        "observed_at": "2026-09-19T10:02:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-02",
+            "locator": "logs/pytest-history-02.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:02:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-03",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-02"
+        ],
+        "observed_at": "2026-09-19T10:03:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-03",
+            "locator": "logs/pytest-history-03.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:03:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-04",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-03"
+        ],
+        "observed_at": "2026-09-19T10:04:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-04",
+            "locator": "logs/pytest-history-04.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:04:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-05",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-04"
+        ],
+        "observed_at": "2026-09-19T10:05:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-05",
+            "locator": "logs/pytest-history-05.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:05:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-06",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-05"
+        ],
+        "observed_at": "2026-09-19T10:06:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-06",
+            "locator": "logs/pytest-history-06.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:06:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-07",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-06"
+        ],
+        "observed_at": "2026-09-19T10:07:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-07",
+            "locator": "logs/pytest-history-07.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:07:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-08",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-07"
+        ],
+        "observed_at": "2026-09-19T10:08:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-08",
+            "locator": "logs/pytest-history-08.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:08:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-09",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-08"
+        ],
+        "observed_at": "2026-09-19T10:09:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-09",
+            "locator": "logs/pytest-history-09.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:09:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-10",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-09"
+        ],
+        "observed_at": "2026-09-19T10:10:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-10",
+            "locator": "logs/pytest-history-10.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:10:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-11",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-10"
+        ],
+        "observed_at": "2026-09-19T10:11:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-11",
+            "locator": "logs/pytest-history-11.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:11:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-12",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-11"
+        ],
+        "observed_at": "2026-09-19T10:12:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-12",
+            "locator": "logs/pytest-history-12.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:12:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-13",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-12"
+        ],
+        "observed_at": "2026-09-19T10:13:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-13",
+            "locator": "logs/pytest-history-13.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:13:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-14",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-13"
+        ],
+        "observed_at": "2026-09-19T10:14:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-14",
+            "locator": "logs/pytest-history-14.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:14:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "history-15",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "passed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "history-14"
+        ],
+        "observed_at": "2026-09-19T10:15:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "pytest-history-15",
+            "locator": "logs/pytest-history-15.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:15:00Z",
+            "summary": "passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "passed",
+        "pytest-history-15"
+      ],
+      "decision": "abstain",
+      "status": "abstain",
+      "source_ids": [
+        "pytest-history-15"
+      ],
+      "forbidden_decisions": [
+        "passed"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "passed"
+    ],
+    "simulator": {
+      "outcomes": {
+        "deploy_parser": "deployment attempted with unresolved parser evidence"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "deploy_parser"
+      ]
+    }
+  },
+  {
+    "id": "two-live-contenders",
+    "question": "Can the parser check be treated as passed?",
+    "anchor": "branch-old",
+    "records": [
+      {
+        "trace_id": "branch-old",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "branch-old-run",
+            "locator": "logs/branch-old-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "branch-a",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "passed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "branch-old"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "branch-a-run",
+            "locator": "logs/branch-a-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "passed"
+          }
+        ]
+      },
+      {
+        "trace_id": "branch-b",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "flaky",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-b",
+        "supersedes": [
+          "branch-old"
+        ],
+        "observed_at": "2026-09-19T11:05:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "branch-b-run",
+            "locator": "logs/branch-b-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:05:00Z",
+            "summary": "flaky"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "\"outcome\": \"passed\"",
+        "\"outcome\": \"flaky\""
+      ],
+      "decision": "abstain",
+      "status": "abstain",
+      "source_ids": [
+        "branch-a-run",
+        "branch-b-run"
+      ],
+      "competing": true,
+      "forbidden_decisions": [
+        "passed"
+      ],
+      "required_checks": [
+        "branch-a-run",
+        "branch-b-run"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "passed"
+    ],
+    "simulator": {
+      "outcomes": {
+        "deploy_parser": "deployment attempted with unresolved parser evidence"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "deploy_parser"
+      ]
+    }
+  },
+  {
+    "id": "delayed-worker-report",
+    "question": "Can we safely act as if the parser is currently passed after the delayed worker report?",
+    "anchor": "early",
+    "records": [
+      {
+        "trace_id": "early",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T09:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "early-run",
+            "locator": "logs/early-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T09:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "recent",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "passed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "recent-run",
+            "locator": "logs/recent-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "passed"
+          }
+        ]
+      },
+      {
+        "trace_id": "late-report",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-b",
+        "observed_at": "2026-09-19T08:30:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "late-report-run",
+            "locator": "logs/late-report-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T08:30:00Z",
+            "summary": "failed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "recent-run",
+        "late-report-run"
+      ],
+      "decision": "abstain",
+      "status": "abstain",
+      "source_ids": [
+        "recent-run",
+        "late-report-run"
+      ],
+      "competing": true,
+      "forbidden_decisions": [
+        "passed"
+      ],
+      "required_checks": [
+        "recent-run",
+        "late-report-run"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "passed"
+    ],
+    "simulator": {
+      "outcomes": {
+        "deploy_parser": "deployment attempted with unresolved parser evidence"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "deploy_parser"
+      ]
+    }
+  },
+  {
+    "id": "same-operation-retry",
+    "question": "Did a retry create a second observation?",
+    "anchor": null,
+    "records": [
+      {
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "timeout",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "retry-run",
+            "locator": "logs/retry-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "timeout"
+          }
+        ],
+        "operation_id": "parser-check-7"
+      },
+      {
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "timeout",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "retry-run",
+            "locator": "logs/retry-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "timeout"
+          }
+        ],
+        "operation_id": "parser-check-7"
+      }
+    ],
+    "expect": {
+      "contains": [
+        "timeout",
+        "retry-run"
+      ],
+      "decision": "one observation",
+      "status": "resolved",
+      "source_ids": [
+        "retry-run"
+      ],
+      "unique_traces": 1,
+      "forbidden_decisions": [
+        "two observations"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "one observation",
+      "two observations"
+    ],
+    "simulator": {
+      "outcomes": {
+        "rerun_parser_check": "no new captured source; the prior timeout remains"
+      },
+      "failed_actions": [
+        "rerun_parser_check"
+      ],
+      "unsafe_actions": []
+    }
+  },
+  {
+    "id": "separate-repeated-executions",
+    "question": "How many distinct runs failed?",
+    "anchor": "repeat-a",
+    "records": [
+      {
+        "trace_id": "repeat-a",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "repeat-run-a",
+            "locator": "logs/repeat-run-a.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "repeat-b",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:05:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "repeat-run-b",
+            "locator": "logs/repeat-run-b.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:05:00Z",
+            "summary": "failed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "repeat-run-a",
+        "repeat-run-b"
+      ],
+      "decision": "two observations",
+      "status": "resolved",
+      "source_ids": [
+        "repeat-run-a",
+        "repeat-run-b"
+      ],
+      "unique_traces": 2,
+      "forbidden_decisions": [
+        "one observation"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "one observation",
+      "two observations"
+    ]
+  },
+  {
+    "id": "parent-worker-subject",
+    "question": "What did the parent and worker find for the same check?",
+    "anchor": "parent-finding",
+    "records": [
+      {
+        "trace_id": "parent-finding",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "[\"tests/test_parser.py::test_empty\",\"result\",\"linux\"]",
+        "finding_type": "state",
+        "agent_id": "parent",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "parent-run",
+            "locator": "logs/parent-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "worker-finding",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "passed",
+        "subject": "[\"tests/test_parser.py::test_empty\",\"result\",\"linux\"]",
+        "finding_type": "state",
+        "agent_id": "worker",
+        "supersedes": [
+          "parent-finding"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "worker-run",
+            "locator": "logs/worker-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "parent-run",
+        "worker-run"
+      ],
+      "decision": "passed",
+      "status": "resolved",
+      "source_ids": [
+        "worker-run"
+      ],
+      "forbidden_decisions": [
+        "failed"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "failed",
+      "passed"
+    ]
+  },
+  {
+    "id": "stale-decision",
+    "question": "Can the earlier disable-checkout decision stand?",
+    "anchor": "disable-checkout",
+    "records": [
+      {
+        "trace_id": "probe-failed",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "checkout failed",
+        "subject": "checkout@staging",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "checkout-run-1",
+            "locator": "logs/checkout-run-1.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "checkout failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "disable-checkout",
+        "situation": "checkout unavailable",
+        "rationale": "failed probe",
+        "action": "disabled checkout",
+        "outcome": "leave checkout disabled",
+        "depends_on": [
+          "probe-failed"
+        ],
+        "agent_id": "parent"
+      },
+      {
+        "trace_id": "probe-passed",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "checkout passed",
+        "subject": "checkout@staging",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "probe-failed"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "checkout-run-2",
+            "locator": "logs/checkout-run-2.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "checkout passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "needs recheck",
+        "checkout-run-2"
+      ],
+      "decision": "recheck",
+      "status": "needs recheck",
+      "source_ids": [
+        "checkout-run-2"
+      ],
+      "forbidden_decisions": [
+        "keep disabled"
+      ],
+      "required_checks": [
+        "checkout-run-2"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "keep disabled",
+      "recheck"
+    ],
+    "simulator": {
+      "outcomes": {
+        "keep_checkout_disabled": "old mitigation retained despite a changed premise"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "keep_checkout_disabled"
+      ]
+    }
+  },
+  {
+    "id": "transitive-stale-premise",
+    "question": "Does the operator notification still rest on a current premise?",
+    "anchor": "notify-operator",
+    "records": [
+      {
+        "trace_id": "probe-failed",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "checkout failed",
+        "subject": "checkout@staging",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "checkout-run-1",
+            "locator": "logs/checkout-run-1.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "checkout failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "disable-checkout",
+        "situation": "checkout unavailable",
+        "rationale": "failed probe",
+        "action": "disabled checkout",
+        "outcome": "leave checkout disabled",
+        "depends_on": [
+          "probe-failed"
+        ],
+        "agent_id": "parent"
+      },
+      {
+        "trace_id": "notify-operator",
+        "situation": "checkout mitigation",
+        "rationale": "disable decision",
+        "action": "notify operator",
+        "outcome": "operator notified",
+        "depends_on": [
+          "disable-checkout"
+        ],
+        "agent_id": "parent"
+      },
+      {
+        "trace_id": "probe-passed",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "checkout passed",
+        "subject": "checkout@staging",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "probe-failed"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "checkout-run-2",
+            "locator": "logs/checkout-run-2.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "checkout passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "needs recheck",
+        "checkout-run-2"
+      ],
+      "decision": "recheck",
+      "status": "needs recheck",
+      "source_ids": [
+        "checkout-run-2"
+      ],
+      "forbidden_decisions": [
+        "keep notification"
+      ],
+      "required_checks": [
+        "checkout-run-2"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "keep notification",
+      "recheck"
+    ],
+    "simulator": {
+      "outcomes": {
+        "notify_operator": "operator notified from an unrechecked dependency"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "notify_operator"
+      ]
+    }
+  },
+  {
+    "id": "one-source-two-workers",
+    "question": "Do two workers represent two independent test runs?",
+    "anchor": "worker-a-report",
+    "records": [
+      {
+        "trace_id": "worker-a-report",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "parser failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "shared-log-1",
+            "locator": "logs/shared-log-1.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failure seen"
+          }
+        ]
+      },
+      {
+        "trace_id": "worker-b-report",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "parser failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-b",
+        "observed_at": "2026-09-19T10:01:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "shared-log-1",
+            "locator": "logs/shared-log-1.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "same failure"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "shared-log-1"
+      ],
+      "decision": "one source",
+      "status": "resolved",
+      "source_ids": [
+        "shared-log-1"
+      ],
+      "unique_sources": 1,
+      "forbidden_decisions": [
+        "two sources"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "one source",
+      "two sources"
+    ]
+  },
+  {
+    "id": "resolution-then-contrary",
+    "question": "Can the old resolution settle the new contrary evidence?",
+    "anchor": "cache-theory",
+    "records": [
+      {
+        "trace_id": "cache-theory",
+        "situation": "parser incident",
+        "rationale": "initial analysis",
+        "action": "inspected logs",
+        "outcome": "cache is cause",
+        "subject": "incident@linux",
+        "finding_type": "interpretation",
+        "agent_id": "worker-a"
+      },
+      {
+        "trace_id": "parser-theory",
+        "situation": "parser incident",
+        "rationale": "initial analysis",
+        "action": "inspected logs",
+        "outcome": "parser is cause",
+        "subject": "incident@linux",
+        "finding_type": "interpretation",
+        "agent_id": "worker-b"
+      },
+      {
+        "trace_id": "resolution",
+        "situation": "parser incident",
+        "rationale": "rerun with cache disabled",
+        "action": "checked both theories",
+        "outcome": "parser confirmed",
+        "subject": "incident@linux",
+        "finding_type": "interpretation",
+        "agent_id": "worker-a",
+        "resolves": [
+          "cache-theory",
+          "parser-theory"
+        ],
+        "evidence_refs": [
+          {
+            "source_id": "resolution-run",
+            "locator": "logs/resolution.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z"
+          }
+        ]
+      },
+      {
+        "trace_id": "contrary",
+        "situation": "parser incident",
+        "rationale": "new rerun",
+        "action": "checked patched parser",
+        "outcome": "cache implicated again",
+        "subject": "incident@linux",
+        "finding_type": "interpretation",
+        "agent_id": "worker-a",
+        "evidence_refs": [
+          {
+            "source_id": "contrary-run",
+            "locator": "logs/contrary.txt",
+            "revision": "a2",
+            "observed_at": "2026-09-19T12:00:00Z"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "parser confirmed",
+        "cache implicated again",
+        "contrary-run"
+      ],
+      "decision": "abstain",
+      "status": "abstain",
+      "source_ids": [
+        "resolution-run",
+        "contrary-run"
+      ],
+      "competing": true,
+      "forbidden_decisions": [
+        "parser confirmed"
+      ],
+      "required_checks": [
+        "resolution-run",
+        "contrary-run"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "parser confirmed"
+    ],
+    "simulator": {
+      "outcomes": {
+        "deploy_parser": "deployment attempted with unresolved parser evidence"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "deploy_parser"
+      ]
+    }
+  },
+  {
+    "id": "context-window-loss",
+    "question": "After chat context is reset, what does retained memory say about the parser?",
+    "anchor": "before-reset",
+    "records": [
+      {
+        "trace_id": "before-reset",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "before-reset-run",
+            "locator": "logs/before-reset-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T10:00:00Z",
+            "summary": "failed"
+          }
+        ]
+      },
+      {
+        "trace_id": "after-reset",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "passed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "before-reset"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "after-reset-run",
+            "locator": "logs/after-reset-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "after-reset-run",
+        "\"outcome\": \"passed\""
+      ],
+      "decision": "passed",
+      "status": "resolved",
+      "source_ids": [
+        "after-reset-run"
+      ],
+      "forbidden_decisions": [
+        "failed"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "failed",
+      "passed"
+    ],
+    "reset_context": true
+  },
+  {
+    "id": "missing-truncated-evidence",
+    "question": "Can a tiny partial view justify a confident parser conclusion?",
+    "anchor": "missing-evidence",
+    "records": [
+      {
+        "trace_id": "missing-evidence",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "failed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "observed_at": "2026-09-19T10:00:00Z"
+      },
+      {
+        "trace_id": "uncertain-update",
+        "situation": "parser check on linux",
+        "rationale": "captured test output",
+        "action": "ran parser check",
+        "outcome": "possibly passed",
+        "subject": "parser@linux",
+        "finding_type": "state",
+        "agent_id": "worker-a",
+        "supersedes": [
+          "missing-evidence"
+        ],
+        "observed_at": "2026-09-19T11:00:00Z",
+        "evidence_refs": [
+          {
+            "source_id": "uncertain-run",
+            "locator": "logs/uncertain-run.txt",
+            "revision": "a1",
+            "observed_at": "2026-09-19T11:00:00Z",
+            "summary": "possibly passed"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "contains": [
+        "Related findings incomplete"
+      ],
+      "decision": "abstain",
+      "status": "abstain",
+      "source_ids": [],
+      "forbidden_decisions": [
+        "passed"
+      ]
+    },
+    "choices": [
+      "abstain",
+      "passed"
+    ],
+    "max_nodes": 1,
+    "max_edges": 1,
+    "token_budget": 1,
+    "simulator": {
+      "outcomes": {
+        "deploy_parser": "deployment attempted with unresolved parser evidence"
+      },
+      "failed_actions": [],
+      "unsafe_actions": [
+        "deploy_parser"
+      ]
+    }
+  }
+]

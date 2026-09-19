@@ -30,8 +30,14 @@ def test_changed_premise_flags_direct_and_transitive_decisions_without_reversing
     assert "needs recheck" not in before
 
     trace(
-        backend, "passed", "checkout passed", subject="checkout@staging", finding_type="state",
-        observed_at="2026-09-19T11:00:00Z", evidence=["run 2"], supersedes=["failed"],
+        backend,
+        "passed",
+        "checkout passed",
+        subject="checkout@staging",
+        finding_type="state",
+        observed_at="2026-09-19T11:00:00Z",
+        evidence=["run 2"],
+        supersedes=["failed"],
     )
     after = backend.recall_graph_memory("notify operator", anchors=["/graph/nodes/Trace/followup.md"])
     assert "needs recheck" in after
@@ -108,8 +114,14 @@ def test_component_anchor_reviews_returned_decision_and_legacy_evidence():
     trace(backend, "failed", "failed", evidence=["probe run 1"], subject="checkout@staging", finding_type="state", observed_at="2026-09-19T10:00:00Z")
     trace(backend, "decision", "disable", depends_on=["failed"], task_id="checkout-task")
     trace(
-        backend, "passed", "passed", evidence=["probe run 2"], subject="checkout@staging", finding_type="state",
-        observed_at="2026-09-19T11:00:00Z", supersedes=["failed"],
+        backend,
+        "passed",
+        "passed",
+        evidence=["probe run 2"],
+        subject="checkout@staging",
+        finding_type="state",
+        observed_at="2026-09-19T11:00:00Z",
+        supersedes=["failed"],
     )
     result = backend.recall_graph_memory("checkout-task", anchors=["/graph/nodes/Task/checkout-task.md"])
     assert "Trace decision needs recheck" in result
@@ -131,7 +143,5 @@ def test_component_owner_is_reviewed_when_trace_node_does_not_fit():
     backend = GraphMemoryBackend.create()
     trace(backend, "premise", "failed", evidence=["probe run"])
     trace(backend, "decision", "disable", depends_on=["premise"])
-    result = backend.recall_graph_memory(
-        "disable", anchors=["/graph/nodes/Outcome/decision-outcome.md"], max_nodes=1, max_edges=1, token_budget=1
-    )
+    result = backend.recall_graph_memory("disable", anchors=["/graph/nodes/Outcome/decision-outcome.md"], max_nodes=1, max_edges=1, token_budget=1)
     assert result.startswith("Dependency status unknown")

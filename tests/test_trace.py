@@ -241,7 +241,10 @@ def test_record_graph_trace_tool_accepts_structured_refs():
     record = {tool.name: tool for tool in graph_memory_tools(backend)}["record_graph_trace"]
     result = record.invoke(
         {
-            "situation": "test failed", "rationale": "read log", "action": "ran test", "outcome": "failed",
+            "situation": "test failed",
+            "rationale": "read log",
+            "action": "ran test",
+            "outcome": "failed",
             "evidence_refs": [{"source_id": "tool-run", "locator": "logs/tool-run"}],
         }
     )

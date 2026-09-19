@@ -210,20 +210,20 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
     .venv/bin/python evals/run_workflows.py --model PROVIDER:MODEL --max-cases 3 --max-steps 8
     .venv/bin/python -m pytest tests/test_workflow_evals.py
 
-- [ ] Write scenario fixtures and offline assertions through the public APIs.
-- [ ] Implement the small CLI with separate offline and opt-in live paths.
-- [ ] Test live-runner orchestration with a fake model; execute all offline cases.
-- [ ] Document what was measured and that live superiority remains unmeasured until a configured run.
-- [ ] Parent reviews evaluation fairness, runs final full pytest/Ruff/examples, and commits.
+- [x] Write scenario fixtures and offline assertions through the public APIs.
+- [x] Implement the small CLI with separate offline and opt-in live paths.
+- [x] Test live-runner orchestration with a fake model; execute all offline cases.
+- [x] Document what was measured and that live superiority remains unmeasured until a configured run.
+- [x] Parent reviews evaluation fairness, runs final full pytest/Ruff/examples, and commits.
 
 ## Final integration checks
 
-- [ ] Every task has its own implementation thread and reviewed commit on main.
-- [ ] No source changed outside the approved six areas; inspect final diff and git status.
-- [ ] Existing tool names remain unchanged and schemas serialize correctly.
-- [ ] Sync/async calls, namespace isolation, transactions, rollback, and all prior tests pass.
-- [ ] README examples and offline workflow scenarios run without provider credentials.
-- [ ] Final report separates verified fixes from caller-dependent semantics and unrun live evaluations.
+- [x] Every task has its own implementation thread and reviewed commit on main.
+- [x] No source changed outside the approved six areas; inspect final diff and git status.
+- [x] Existing tool names remain unchanged and schemas serialize correctly.
+- [x] Sync/async calls, namespace isolation, transactions, rollback, and all prior tests pass.
+- [x] README examples and offline workflow scenarios run without provider credentials.
+- [x] Final report separates verified fixes from caller-dependent semantics and unrun live evaluations.
 
 ## Review follow-up: remove duplicated recall output
 
@@ -239,4 +239,17 @@ this product issue.
 - Preserve explicit component anchors, changed component data, custom metadata and relationships.
 - Keep direct debug views complete and retain every genuine incompleteness warning.
 - [x] Review and test the compact rendering follow-up in the original Task 1 thread.
-- [ ] Repeat the offline scenarios at the original cap and report remaining limitations.
+- [x] Repeat the offline scenarios at the original cap and report remaining limitations.
+
+## Verified outcome
+
+Six separate Sol medium implementation threads completed the six tasks. The parent
+reviewed their changes and integrated them directly on main, including the recall
+compaction follow-up uncovered by the workflow scenarios.
+
+- Full suite: 153 tests passed; Ruff checks passed.
+- All twelve offline scenarios passed at the original 2,000-token / 8,000-character defaults.
+- Ten scenarios returned complete context; the long-history and deliberately tiny-budget cases retained their warnings.
+- Six standalone README examples and a combined real ToolNode runtime check passed.
+- The optional live runner was exercised with a fake tool-capable model. No live provider comparison ran, so no model-quality advantage is claimed.
+- Storage remains in memory; no branches, worktrees, persistence APIs, or dependencies were added.
