@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -176,6 +178,9 @@ class GraphStoreAdapter(Protocol):
     def add_graph_documents(self, documents: Sequence[Any], *, scope_key: str | None = None) -> None:
         """Add graph documents."""
 
+    def transaction(self) -> AbstractContextManager[None]:
+        """Atomically group graph writes."""
+
 
 def utc_now() -> str:
     """Return the current UTC time in ISO 8601 format."""
@@ -199,6 +204,11 @@ def validate_properties(properties: Mapping[str, Any] | None) -> Properties:
     if not isinstance(properties, Mapping):
         msg = "properties must be a JSON object."
         raise GraphMemoryValidationError(msg)
+    try:
+        json.dumps(dict(properties), allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as exc:
+        msg = "properties must be JSON serializable."
+        raise GraphMemoryValidationError(msg) from exc
     result: Properties = {}
     for key, value in properties.items():
         if not isinstance(key, str) or not key:
@@ -223,6 +233,12 @@ def merge_metadata(properties: Mapping[str, Any] | None, *, scope_key: str | Non
         Validated merged properties.
     """
     merged: dict[str, Any] = dict(validate_properties(properties))
+    if "scope_key" in merged and merged["scope_key"] != scope_key:
+        msg = "scope_key cannot differ from the active namespace."
+        raise GraphMemoryValidationError(msg)
+    if metadata and "scope_key" in metadata and metadata["scope_key"] != scope_key:
+        msg = "scope_key cannot differ from the active namespace."
+        raise GraphMemoryValidationError(msg)
     now = utc_now()
     merged.setdefault("created_at", now)
     merged["updated_at"] = now
@@ -267,18 +283,20 @@ def lexical_search_score(query: str, text: str) -> int:
 
 
 def _validate_json_value(value: Any, *, path: str) -> JsonValue:
+    if isinstance(value, float) and not math.isfinite(value):
+        msg = f"property {path!r} must be finite."
+        raise GraphMemoryValidationError(msg)
     if isinstance(value, str | int | float | bool) or value is None:
         return value
     if isinstance(value, list):
         return [_validate_json_value(item, path=path) for item in value]
     if isinstance(value, dict):
-        return {str(key): _validate_json_value(item, path=f"{path}.{key}") for key, item in value.items()}
-    try:
-        json.dumps(value)
-    except TypeError as exc:
-        msg = f"property {path!r} must be JSON serializable."
-        raise GraphMemoryValidationError(msg) from exc
-    return value
+        if any(not isinstance(key, str) for key in value):
+            msg = f"property {path!r} must have string keys."
+            raise GraphMemoryValidationError(msg)
+        return {key: _validate_json_value(item, path=f"{path}.{key}") for key, item in value.items()}
+    msg = f"property {path!r} must be JSON serializable."
+    raise GraphMemoryValidationError(msg)
 
 
 def _flatten_search_value(value: JsonValue) -> list[str]:

@@ -105,8 +105,9 @@ Kuzu is the supported graph store. VGS uses Kuzu's in-memory database mode:
 kuzu.Database(":memory:")
 ```
 
-The graph is a RAM scratchpad that disappears when the Python process exits. Do
-not add on-disk Kuzu paths or manual graph reset APIs.
+The graph is a RAM scratchpad held by the store until the application releases it
+or the Python process exits. There is no per-invocation reset or on-disk storage.
+Do not add on-disk Kuzu paths or manual graph reset APIs.
 
 The graph should not default to user-profile semantics. Preferred
 scopes are project/workflow oriented:
@@ -191,13 +192,22 @@ Subagents are useful for context isolation. The graph can help merge their outpu
 
 Default preference:
 
-- Use one graph per parent run or workspace.
-- Scope subagent writes with `subagent_id` and `run_id`.
+- Use one shared store for a parent run or workspace, with a project/workspace namespace.
+- Pass `agent_id`, `subagent_id`, and `run_id` explicitly on trace writes.
 - Let the main agent recall across subagent outputs through graph traversal.
 
 Separate physical graphs per subagent are simpler to isolate, but make cross-subagent
 recall harder. Prefer scoped subgraphs unless isolation is more important than shared
 reasoning.
+
+One store serializes reads and writes on its Kuzu connection. High-level traces,
+individual node/edge writes, and document batches use transactions, so a failed
+write rolls back its partial graph changes. Upserts merge omitted properties and
+preserve creation time. When writers set the same property, the last successful
+writer wins. Artifact and Evidence nodes represent shared values; trace-specific
+provenance belongs on Trace/component nodes and their links. Namespace scopes
+data, not authorization; schema remains database-wide. Concurrent throughput is
+limited by the single store lock, and separate processes do not share the graph.
 
 ## What Agents Should Write
 

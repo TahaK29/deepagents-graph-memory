@@ -28,7 +28,35 @@ Neo4j's [context graph article](https://neo4j.com/blog/genai/from-recall-to-reas
 
 This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
-The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu, so that data disappears when the process ends.
+The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu. Its data remains available while the backend/store is retained in the process and disappears when the process exits; there is no automatic cleanup after each agent invocation or disk persistence.
+
+### Sharing one graph between agents
+
+Create one store and pass it to each backend. Use the same project namespace so both writers can inspect the same graph. Agent and subagent IDs are supplied by the caller; they are not inferred from the agent runtime.
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+
+store = KuzuGraphStore.memory()
+parent = GraphMemoryBackend(store, namespace=("project", "demo"))
+subagent = GraphMemoryBackend(store, namespace=("project", "demo"))
+
+parent.record_graph_trace(
+    situation="test failed", rationale="the parser missed an empty field",
+    action="asked a subagent to inspect the parser", outcome="cause identified",
+    run_id="run-1", agent_id="parent",
+)
+subagent.record_graph_trace(
+    situation="parser skipped an empty field", rationale="split removed the field",
+    action="patched the parser", outcome="test passed",
+    artifacts=["src/parser.py"], run_id="run-1", agent_id="parent", subagent_id="parser-debugger",
+)
+print(parent.ls("/graph/nodes/Trace/").entries)
+print(parent.read("/graph/search/parser.md").file_data["content"])
+```
+
+Writes through one store are serialized and each trace or document batch commits atomically. Existing node and edge properties survive updates that omit them; the last successful writer wins when writers set the same property. Shared Artifact and Evidence values retain links to every trace, with per-trace IDs on the links. Distinct stores do not share data, and this in-memory store does not work across processes.
 
 ## Quick Start
 

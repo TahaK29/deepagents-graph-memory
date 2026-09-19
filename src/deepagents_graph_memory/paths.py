@@ -45,7 +45,7 @@ def validate_identifier(value: str, *, field: str) -> str:
     Raises:
         GraphMemoryValidationError: If the identifier is unsafe.
     """
-    if not IDENTIFIER_RE.fullmatch(value):
+    if not isinstance(value, str) or not IDENTIFIER_RE.fullmatch(value):
         msg = f"{field} must start with a letter and contain only letters, numbers, and underscores."
         raise GraphMemoryValidationError(msg)
     return value
@@ -63,7 +63,7 @@ def validate_node_id(value: str) -> str:
     Raises:
         GraphMemoryValidationError: If the id is unsafe.
     """
-    if not value or len(value) > MAX_ID_LENGTH:
+    if not isinstance(value, str) or not value or len(value) > MAX_ID_LENGTH:
         msg = f"node_id must be between 1 and {MAX_ID_LENGTH} characters."
         raise GraphMemoryValidationError(msg)
     if any(char in value for char in ("\x00", "/", "\\")) or value in {".", ".."}:

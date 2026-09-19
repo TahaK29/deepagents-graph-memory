@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from contextlib import contextmanager
+from functools import wraps
+from threading import RLock
 from typing import Any, cast
 
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
@@ -23,6 +26,7 @@ from deepagents_graph_memory.stores import (
     SearchResult,
     lexical_search_score,
     node_search_text,
+    utc_now,
     validate_properties,
 )
 
@@ -86,6 +90,24 @@ class _KuzuGraph:
         return [(row["name"], row["type"]) for row in self.query(f"CALL TABLE_INFO('{table}') RETURN *;")]
 
 
+def _locked(method: Any) -> Any:
+    @wraps(method)
+    def wrapper(self: KuzuGraphStore, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
+def _atomic(method: Any) -> Any:
+    @wraps(method)
+    def wrapper(self: KuzuGraphStore, *args: Any, **kwargs: Any) -> Any:
+        with self.transaction():
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class KuzuGraphStore:
     """Internal adapter for LangChain's Kuzu graph integration."""
 
@@ -97,6 +119,50 @@ class KuzuGraphStore:
         """
         self.graph = graph
         self._fts_ready_labels: set[str] = set()
+        # ponytail: one store lock serializes shared-connection work; split connections if throughput matters.
+        self._lock = RLock()
+        self._transaction_depth = 0
+        self._rollback_only = False
+
+    @contextmanager
+    def transaction(self) -> Any:
+        """Serialize and atomically group writes on the shared Kuzu connection."""
+        with self._lock:
+            outermost = self._transaction_depth == 0
+            if outermost:
+                self._query("BEGIN TRANSACTION;", {})
+                self._rollback_only = False
+            self._transaction_depth += 1
+            try:
+                yield
+            except BaseException:
+                self._rollback_only = True
+                raise
+            else:
+                if outermost and self._rollback_only:
+                    msg = "A nested graph write failed; transaction was rolled back."
+                    raise GraphMemoryConfigurationError(msg)
+            finally:
+                self._transaction_depth -= 1
+                if outermost:
+                    if self._rollback_only:
+                        try:
+                            self._query("ROLLBACK;", {})
+                        except GraphMemoryConfigurationError:
+                            pass  # Preserve the original write failure if Kuzu already aborted.
+                        self._fts_ready_labels.clear()
+                    else:
+                        try:
+                            self._query("COMMIT;", {})
+                        except GraphMemoryConfigurationError:
+                            try:
+                                self._query("ROLLBACK;", {})
+                            except GraphMemoryConfigurationError:
+                                pass
+                            self._fts_ready_labels.clear()
+                            self._rollback_only = False
+                            raise
+                    self._rollback_only = False
 
     @classmethod
     def memory(cls) -> KuzuGraphStore:
@@ -104,6 +170,7 @@ class KuzuGraphStore:
         database = kuzu.Database(":memory:")
         return cls(_KuzuGraph(database))
 
+    @_locked
     def get_schema(self, *, scope_key: str | None = None) -> str:
         """Return graph schema text."""
         del scope_key
@@ -112,11 +179,13 @@ class KuzuGraphStore:
             return "No graph schema has been created yet."
         return self.graph.get_schema
 
+    @_locked
     def list_labels(self, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
         """List known node labels."""
         labels = [label for label in self._labels() if self._label_has_nodes(label, scope_key=scope_key)]
         return LimitedResult(items=labels[:limit], truncated=len(labels) > limit)
 
+    @_locked
     def list_node_ids(self, label: str, *, scope_key: str | None = None, limit: int = 50) -> LimitedResult:
         """List ids for a node label."""
         validate_identifier(label, field="label")
@@ -136,6 +205,7 @@ class KuzuGraphStore:
         ids = [str(row["id"]) for row in rows if row.get("id") is not None]
         return LimitedResult(items=ids[:limit], truncated=len(ids) > limit)
 
+    @_locked
     def get_node(self, label: str, node_id: str, *, scope_key: str | None = None) -> GraphNode | None:
         """Return a single node."""
         validate_identifier(label, field="label")
@@ -147,6 +217,7 @@ class KuzuGraphStore:
             return None
         return _coerce_node(rows[0].get("n"), default_label=label, default_id=node_id)
 
+    @_locked
     def get_neighbors(
         self,
         label: str,
@@ -192,8 +263,12 @@ class KuzuGraphStore:
         edges = sorted(collected.values(), key=lambda edge: (edge.relationship, edge.source_label, edge.source_id, edge.target_label, edge.target_id))
         return NeighborhoodResult(node=node, edges=edges, truncated_nodes=truncated_nodes, truncated_edges=truncated_edges)
 
+    @_locked
     def search(self, query: str, *, scope_key: str | None = None, limit: int = 20) -> SearchResult:
         """Search graph metadata."""
+        if self._transaction_depth:
+            msg = "search requires Kuzu auto transaction mode."
+            raise GraphMemoryConfigurationError(msg)
         scored: list[tuple[float, SearchItem]] = []
         seen_paths: set[str] = set()
         for score, item in self._search_fts(query, scope_key=scope_key, limit=limit):
@@ -210,14 +285,20 @@ class KuzuGraphStore:
         items = [item for _score, item in scored]
         return SearchResult(items=items[:limit], truncated=len(items) > limit)
 
+    @_atomic
     def add_node(self, label: str, node_id: str, *, properties: Properties | None = None, scope_key: str | None = None) -> None:
         """Add or update a node."""
         validate_identifier(label, field="label")
         validate_node_id(node_id)
         self._ensure_node_table(label)
         existing = self.get_node(label, node_id, scope_key=scope_key)
+        if existing is not None and properties is None:
+            return
         merged = dict(existing.properties) if existing else {}
-        merged.update(validate_properties(properties))
+        merged.update(_scoped_properties(properties, scope_key))
+        if existing and "created_at" in existing.properties:
+            merged["created_at"] = existing.properties["created_at"]
+            merged["updated_at"] = utc_now()
         props = validate_properties(merged)
         search_text = node_search_text(label, node_id, props)
         self._query(
@@ -238,6 +319,7 @@ class KuzuGraphStore:
             },
         )
 
+    @_atomic
     def add_edge(
         self,
         source_label: str,
@@ -255,10 +337,20 @@ class KuzuGraphStore:
         validate_identifier(relationship, field="relationship")
         validate_node_id(source_id)
         validate_node_id(target_id)
-        props = validate_properties(properties)
+        props = _scoped_properties(properties, scope_key)
         self.add_node(source_label, source_id, scope_key=scope_key)
         self.add_node(target_label, target_id, scope_key=scope_key)
         self._ensure_rel_table(relationship, source_label, target_label)
+        rows = self._query(
+            f"MATCH (source:{source_label} {{pk: $source_pk}})-[rel:{relationship}]->(target:{target_label} {{pk: $target_pk}}) RETURN rel",
+            {"source_pk": _node_pk(source_label, source_id, scope_key), "target_pk": _node_pk(target_label, target_id, scope_key)},
+        )
+        if rows:
+            existing_properties = _decode_properties(rows[0]["rel"])
+            props = validate_properties({**existing_properties, **props})
+            if "created_at" in existing_properties:
+                props["created_at"] = existing_properties["created_at"]
+                props["updated_at"] = utc_now()
         self._query(
             f"""
             MATCH (source:{source_label} {{pk: $source_pk}}),
@@ -275,24 +367,33 @@ class KuzuGraphStore:
             },
         )
 
+    @_atomic
     def add_graph_documents(self, documents: Sequence[Any], *, scope_key: str | None = None) -> None:
         """Add graph documents through validated scoped writes."""
         for document in documents:
             nodes = getattr(document, "nodes", None)
             relationships = getattr(document, "relationships", None)
-            if nodes is None or relationships is None:
+            if (
+                not isinstance(nodes, Sequence)
+                or isinstance(nodes, str | bytes)
+                or not isinstance(relationships, Sequence)
+                or isinstance(relationships, str | bytes)
+            ):
                 msg = "documents must contain LangChain GraphDocument-like objects."
                 raise GraphMemoryValidationError(msg)
             for node in nodes:
-                self.add_node(str(node.type), str(node.id), properties=_with_scope(node.properties, scope_key), scope_key=scope_key)
+                label, node_id, properties = _document_node(node, scope_key)
+                self.add_node(label, node_id, properties=properties, scope_key=scope_key)
             for relationship in relationships:
+                source_label, source_id, _ = _document_node(getattr(relationship, "source", None), scope_key)
+                target_label, target_id, _ = _document_node(getattr(relationship, "target", None), scope_key)
                 self.add_edge(
-                    str(relationship.source.type),
-                    str(relationship.source.id),
-                    str(relationship.type),
-                    str(relationship.target.type),
-                    str(relationship.target.id),
-                    properties=_with_scope(relationship.properties, scope_key),
+                    source_label,
+                    source_id,
+                    getattr(relationship, "type", None),
+                    target_label,
+                    target_id,
+                    properties=_with_scope(getattr(relationship, "properties", None), scope_key),
                     scope_key=scope_key,
                 )
 
@@ -333,10 +434,11 @@ class KuzuGraphStore:
             try:
                 rows = self._query(
                     f"""
-                    CALL QUERY_FTS_INDEX('{label}', 'graph_memory_fts', $query, top := {_fts_candidate_limit(limit, scope_key)})
+                    CALL QUERY_FTS_INDEX('{label}', 'graph_memory_fts', $query)
                     WHERE {scope_where}
                     RETURN node, score
                     ORDER BY score DESC
+                    LIMIT {int(limit) + 1}
                     """,
                     {"query": query, **scope_params},
                 )
@@ -421,13 +523,19 @@ class KuzuGraphStore:
         self.graph.refresh_schema()
 
     def _query(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        if self._transaction_depth and self._rollback_only and query.strip().upper() != "ROLLBACK;":
+            msg = "Graph transaction already failed; it must roll back."
+            raise GraphMemoryConfigurationError(msg)
         try:
             return cast("list[dict[str, Any]]", self.graph.query(query, params))
         except Exception as exc:  # noqa: BLE001
+            if self._transaction_depth:
+                self._rollback_only = True
             msg = f"Kuzu graph query failed: {exc}"
             raise GraphMemoryConfigurationError(msg) from exc
 
     def _ensure_node_table(self, label: str) -> None:
+        self._reject_table_collision(label, "NODE")
         self._query(
             f"""
             CREATE NODE TABLE IF NOT EXISTS {label} (
@@ -444,6 +552,7 @@ class KuzuGraphStore:
         )
 
     def _ensure_rel_table(self, relationship: str, source_label: str, target_label: str) -> None:
+        self._reject_table_collision(relationship, "REL")
         self._query(
             f"""
             CREATE REL TABLE IF NOT EXISTS {relationship} (
@@ -454,11 +563,16 @@ class KuzuGraphStore:
             """,
             {},
         )
-        try:
-            self._query(f"ALTER TABLE {relationship} ADD FROM {source_label} TO {target_label};", {})
-        except GraphMemoryConfigurationError as exc:
-            if "already exists" not in str(exc).casefold():
-                raise
+        connections = self._query(f"CALL SHOW_CONNECTION('{relationship}') RETURN *;", {})
+        if any(row["source table name"] == source_label and row["destination table name"] == target_label for row in connections):
+            return
+        self._query(f"ALTER TABLE {relationship} ADD FROM {source_label} TO {target_label};", {})
+
+    def _reject_table_collision(self, name: str, expected_type: str) -> None:
+        for row in self._query("CALL SHOW_TABLES() RETURN *;", {}):
+            if str(row["name"]).casefold() == name.casefold() and (row["name"] != name or row["type"] != expected_type):
+                msg = f"Graph table {name!r} conflicts with existing {row['type'].lower()} table {row['name']!r}."
+                raise GraphMemoryValidationError(msg)
 
     def _label_has_nodes(self, label: str, *, scope_key: str | None) -> bool:
         scope_where, params = _scope_where("n", scope_key)
@@ -527,10 +641,23 @@ def _summarize_properties(properties: dict[str, Any]) -> str:
 
 
 def _with_scope(properties: dict[str, Any] | None, scope_key: str | None) -> Properties:
-    scoped = dict(properties or {})
+    return _scoped_properties(properties, scope_key)
+
+
+def _document_node(value: Any, scope_key: str | None) -> tuple[str, str, Properties]:
+    label = validate_identifier(getattr(value, "type", None), field="label")
+    node_id = validate_node_id(getattr(value, "id", None))
+    return label, node_id, _with_scope(getattr(value, "properties", None), scope_key)
+
+
+def _scoped_properties(properties: dict[str, Any] | None, scope_key: str | None) -> Properties:
+    scoped = validate_properties(properties)
+    if "scope_key" in scoped and scoped["scope_key"] != scope_key:
+        msg = "scope_key cannot differ from the active namespace."
+        raise GraphMemoryValidationError(msg)
     if scope_key is not None:
         scoped["scope_key"] = scope_key
-    return validate_properties(scoped)
+    return scoped
 
 
 def _node_pk(label: str, node_id: str, scope_key: str | None) -> str:
@@ -541,9 +668,3 @@ def _scope_where(alias: str, scope_key: str | None) -> tuple[str, dict[str, Any]
     if scope_key is None:
         return f"{alias}.scope_key IS NULL", {}
     return f"{alias}.scope_key = $scope_key", {"scope_key": scope_key}
-
-
-def _fts_candidate_limit(limit: int, scope_key: str | None) -> int:
-    if scope_key is None:
-        return int(limit) + 1
-    return max(int(limit) + 1, 1000)

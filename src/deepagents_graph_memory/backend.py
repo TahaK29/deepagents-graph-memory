@@ -272,7 +272,7 @@ class GraphMemoryBackend(BackendProtocol):
         Returns:
             The trace id used for the recorded graph.
         """
-        trace_id = validate_node_id(trace_id or _new_trace_id())
+        trace_id = validate_node_id(_new_trace_id() if trace_id is None else trace_id)
         scope_key = self._scope_key()
         trace_context = _without_none(
             {
@@ -282,94 +282,147 @@ class GraphMemoryBackend(BackendProtocol):
                 "task_id": task_id,
             }
         )
+        situation = _validate_trace_text(situation, field="situation")
+        rationale = _validate_trace_text(rationale, field="rationale")
+        action = _validate_trace_text(action, field="action")
+        outcome = _validate_trace_text(outcome, field="outcome")
+        if artifacts is not None and (not isinstance(artifacts, Sequence) or isinstance(artifacts, str | bytes)):
+            msg = "artifacts must be a sequence of strings."
+            raise GraphMemoryValidationError(msg)
+        if evidence is not None and (not isinstance(evidence, Sequence) or isinstance(evidence, str | bytes)):
+            msg = "evidence must be a sequence of strings."
+            raise GraphMemoryValidationError(msg)
+        artifacts = [_validate_trace_text(value, field="artifact") for value in artifacts or []]
+        evidence = [_validate_trace_text(value, field="evidence") for value in evidence or []]
+        node_specs = [
+            ("Situation", validate_node_id(f"{trace_id}-situation"), situation),
+            ("Rationale", validate_node_id(f"{trace_id}-rationale"), rationale),
+            ("Action", validate_node_id(f"{trace_id}-action"), action),
+            ("Outcome", validate_node_id(f"{trace_id}-outcome"), outcome),
+        ]
+        reserved = {
+            "kind": "reasoning_trace",
+            "situation": situation,
+            "rationale": rationale,
+            "action": action,
+            "outcome": outcome,
+            "trace_id": trace_id,
+            **trace_context,
+        }
+        for key, value in reserved.items():
+            if key in metadata and metadata[key] != value:
+                msg = f"trace metadata cannot override {key}."
+                raise GraphMemoryValidationError(msg)
+        if "text" in metadata or any(key in metadata for key in ("run_id", "agent_id", "subagent_id", "task_id") if key not in trace_context):
+            msg = "trace text and identity metadata must use their explicit arguments."
+            raise GraphMemoryValidationError(msg)
+        edge_metadata = {**metadata, **trace_context, "trace_id": trace_id}
+        shared_metadata = {key: metadata[key] for key in ("source", "created_by") if key in metadata}
         trace_metadata = merge_metadata(
             {
                 "kind": "reasoning_trace",
-                "situation": _validate_trace_text(situation, field="situation"),
-                "rationale": _validate_trace_text(rationale, field="rationale"),
-                "action": _validate_trace_text(action, field="action"),
-                "outcome": _validate_trace_text(outcome, field="outcome"),
+                "situation": situation,
+                "rationale": rationale,
+                "action": action,
+                "outcome": outcome,
                 **trace_context,
             },
             scope_key=scope_key,
             metadata={**metadata, "source": metadata.get("source", "graph_trace")},
         )
-        self.store.add_node("Trace", trace_id, properties=trace_metadata, scope_key=scope_key)
+        with self.store.transaction():
+            for label, node_id in [("Trace", trace_id), *((label, node_id) for label, node_id, _text in node_specs)]:
+                if self.store.get_node(label, node_id, scope_key=scope_key) is not None:
+                    msg = f"trace node {label}/{node_id} already exists."
+                    raise GraphMemoryValidationError(msg)
+            self.store.add_node("Trace", trace_id, properties=trace_metadata, scope_key=scope_key)
 
-        node_specs = [
-            ("Situation", f"{trace_id}-situation", situation),
-            ("Rationale", f"{trace_id}-rationale", rationale),
-            ("Action", f"{trace_id}-action", action),
-            ("Outcome", f"{trace_id}-outcome", outcome),
-        ]
-        for label, node_id, text in node_specs:
-            self.store.add_node(
-                label,
-                node_id,
-                properties=merge_metadata(
-                    {
-                        "text": text,
-                        "trace_id": trace_id,
-                        **trace_context,
-                    },
+            for label, node_id, text in node_specs:
+                self.store.add_node(
+                    label,
+                    node_id,
+                    properties=merge_metadata(
+                        {
+                            "text": text,
+                            "trace_id": trace_id,
+                            **trace_context,
+                        },
+                        scope_key=scope_key,
+                        metadata=edge_metadata,
+                    ),
                     scope_key=scope_key,
-                    metadata=metadata,
-                ),
+                )
+
+            self._add_trace_edge(
+                "Trace", trace_id, "HAS_SITUATION", "Situation", f"{trace_id}-situation", scope_key=scope_key, metadata=edge_metadata
+            )
+            self._add_trace_edge(
+                "Trace", trace_id, "HAS_RATIONALE", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=edge_metadata
+            )
+            self._add_trace_edge("Trace", trace_id, "HAS_ACTION", "Action", f"{trace_id}-action", scope_key=scope_key, metadata=edge_metadata)
+            self._add_trace_edge("Trace", trace_id, "HAS_OUTCOME", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=edge_metadata)
+            self._add_trace_edge(
+                "Situation",
+                f"{trace_id}-situation",
+                "LED_TO",
+                "Rationale",
+                f"{trace_id}-rationale",
                 scope_key=scope_key,
+                metadata=edge_metadata,
+            )
+            self._add_trace_edge(
+                "Rationale",
+                f"{trace_id}-rationale",
+                "JUSTIFIED",
+                "Action",
+                f"{trace_id}-action",
+                scope_key=scope_key,
+                metadata=edge_metadata,
+            )
+            self._add_trace_edge(
+                "Action", f"{trace_id}-action", "PRODUCED", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=edge_metadata
             )
 
-        self._add_trace_edge("Trace", trace_id, "HAS_SITUATION", "Situation", f"{trace_id}-situation", scope_key=scope_key, metadata=metadata)
-        self._add_trace_edge("Trace", trace_id, "HAS_RATIONALE", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=metadata)
-        self._add_trace_edge("Trace", trace_id, "HAS_ACTION", "Action", f"{trace_id}-action", scope_key=scope_key, metadata=metadata)
-        self._add_trace_edge("Trace", trace_id, "HAS_OUTCOME", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
-        self._add_trace_edge(
-            "Situation",
-            f"{trace_id}-situation",
-            "LED_TO",
-            "Rationale",
-            f"{trace_id}-rationale",
-            scope_key=scope_key,
-            metadata=metadata,
-        )
-        self._add_trace_edge(
-            "Rationale",
-            f"{trace_id}-rationale",
-            "JUSTIFIED",
-            "Action",
-            f"{trace_id}-action",
-            scope_key=scope_key,
-            metadata=metadata,
-        )
-        self._add_trace_edge("Action", f"{trace_id}-action", "PRODUCED", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
+            self._link_scope_node("Run", run_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=edge_metadata)
+            self._link_scope_node("Agent", agent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=edge_metadata)
+            self._link_scope_node("Subagent", subagent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=edge_metadata)
+            self._link_scope_node("Task", task_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=edge_metadata)
 
-        self._link_scope_node("Run", run_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=metadata)
-        self._link_scope_node("Agent", agent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=metadata)
-        self._link_scope_node("Subagent", subagent_id, "RECORDED", trace_id, scope_key=scope_key, metadata=metadata)
-        self._link_scope_node("Task", task_id, "HAS_TRACE", trace_id, scope_key=scope_key, metadata=metadata)
+            for artifact_text in artifacts:
+                artifact_id = _value_id("artifact", artifact_text)
+                existing_artifact = self.store.get_node("Artifact", artifact_id, scope_key=scope_key)
+                if existing_artifact is not None and existing_artifact.properties.get("value") != artifact_text:
+                    msg = f"Artifact/{artifact_id} has a conflicting value."
+                    raise GraphMemoryValidationError(msg)
+                if existing_artifact is None:
+                    self.store.add_node(
+                        "Artifact",
+                        artifact_id,
+                        properties=merge_metadata({"value": artifact_text}, scope_key=scope_key, metadata=shared_metadata),
+                        scope_key=scope_key,
+                    )
+                self._add_trace_edge("Trace", trace_id, "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=edge_metadata)
+                self._add_trace_edge("Action", f"{trace_id}-action", "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=edge_metadata)
 
-        for artifact in artifacts or []:
-            artifact_text = _validate_trace_text(artifact, field="artifact")
-            artifact_id = _value_id("artifact", artifact_text)
-            self.store.add_node(
-                "Artifact",
-                artifact_id,
-                properties=merge_metadata({"value": artifact_text, "trace_id": trace_id}, scope_key=scope_key, metadata=metadata),
-                scope_key=scope_key,
-            )
-            self._add_trace_edge("Trace", trace_id, "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=metadata)
-            self._add_trace_edge("Action", f"{trace_id}-action", "INVOLVED", "Artifact", artifact_id, scope_key=scope_key, metadata=metadata)
-
-        for item in evidence or []:
-            evidence_text = _validate_trace_text(item, field="evidence")
-            evidence_id = _value_id("evidence", evidence_text)
-            self.store.add_node(
-                "Evidence",
-                evidence_id,
-                properties=merge_metadata({"value": evidence_text, "trace_id": trace_id}, scope_key=scope_key, metadata=metadata),
-                scope_key=scope_key,
-            )
-            self._add_trace_edge("Evidence", evidence_id, "SUPPORTS", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=metadata)
-            self._add_trace_edge("Evidence", evidence_id, "SUPPORTS", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=metadata)
+            for evidence_text in evidence:
+                evidence_id = _value_id("evidence", evidence_text)
+                existing_evidence = self.store.get_node("Evidence", evidence_id, scope_key=scope_key)
+                if existing_evidence is not None and existing_evidence.properties.get("value") != evidence_text:
+                    msg = f"Evidence/{evidence_id} has a conflicting value."
+                    raise GraphMemoryValidationError(msg)
+                if existing_evidence is None:
+                    self.store.add_node(
+                        "Evidence",
+                        evidence_id,
+                        properties=merge_metadata({"value": evidence_text}, scope_key=scope_key, metadata=shared_metadata),
+                        scope_key=scope_key,
+                    )
+                self._add_trace_edge(
+                    "Evidence", evidence_id, "SUPPORTS", "Rationale", f"{trace_id}-rationale", scope_key=scope_key, metadata=edge_metadata
+                )
+                self._add_trace_edge(
+                    "Evidence", evidence_id, "SUPPORTS", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=edge_metadata
+                )
 
         return trace_id
 
@@ -444,11 +497,21 @@ class GraphMemoryBackend(BackendProtocol):
         if namespace is None:
             return None
         if isinstance(namespace, str):
-            return namespace
+            return validate_namespace((namespace,))[0]
         if isinstance(namespace, Sequence) and not callable(namespace):
             return "|".join(validate_namespace(tuple(namespace)))
+        if not callable(namespace):
+            msg = "namespace must be a string, sequence of strings, or factory."
+            raise GraphMemoryValidationError(msg)
         runtime = _get_runtime_or_none()
-        resolved = namespace(runtime)
+        try:
+            resolved = namespace(runtime)
+        except Exception as exc:
+            msg = f"namespace factory failed: {exc}"
+            raise GraphMemoryValidationError(msg) from exc
+        if not isinstance(resolved, tuple):
+            msg = "namespace factory must return a tuple of strings."
+            raise GraphMemoryValidationError(msg)
         return "|".join(validate_namespace(resolved))
 
     def _add_trace_edge(
@@ -478,7 +541,9 @@ class GraphMemoryBackend(BackendProtocol):
         if node_id is None:
             return
         validate_node_id(node_id)
-        self.store.add_node(label, node_id, properties=merge_metadata({}, scope_key=scope_key, metadata=metadata), scope_key=scope_key)
+        if self.store.get_node(label, node_id, scope_key=scope_key) is None:
+            node_metadata = {key: metadata[key] for key in ("source", "created_by") if key in metadata}
+            self.store.add_node(label, node_id, properties=merge_metadata({}, scope_key=scope_key, metadata=node_metadata), scope_key=scope_key)
         self._add_trace_edge(label, node_id, relationship, "Trace", trace_id, scope_key=scope_key, metadata=metadata)
 
 
@@ -546,11 +611,11 @@ def _normalize_pattern(pattern: str) -> tuple[str, bool]:
 
 
 def _new_trace_id() -> str:
-    return f"trace-{uuid4().hex[:12]}"
+    return f"trace-{uuid4().hex}"
 
 
 def _value_id(prefix: str, value: str) -> str:
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
     return f"{prefix}-{digest}"
 
 
