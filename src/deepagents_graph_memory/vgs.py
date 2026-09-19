@@ -56,6 +56,11 @@ In VGS mode, do not assume the default Deep Agents filesystem tools are availabl
 - Do not write every thought. Prefer facts that will help resume work, avoid repeated
   failed attempts, explain a decision, or connect evidence to an outcome.
 - Record failures and dead ends with their outcomes so future work can avoid repeating them.
+- When citing captured output, pass `evidence_refs` with a source ID assigned at collection,
+  a locator, and optional revision, observed_at, or your summary. Reuse the ID for the
+  same captured source across workers; give a separate execution a new ID even if its
+  output text matches. These are citations, not votes or proof of independent checks.
+  Plain `evidence` strings remain useful but do not identify a shared source.
 - For related findings, supply a stable, narrow `subject` within the project namespace.
   Reuse the exact subject key supplied by the parent or application for the same
   question. When a write tool has a bound subject, omit `subject` in the call. Do

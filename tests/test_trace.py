@@ -2,7 +2,13 @@
 # - Cases: saving and reading that story, optional details, multiline text, and finding related artifacts;
 #        following the story's connections, looking it up from an artifact, and recording it through a tool.
 
+import hashlib
+
+import pytest
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
+from deepagents_graph_memory.errors import GraphMemoryValidationError
+from deepagents_graph_memory.kuzu_store import KuzuGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -143,3 +149,113 @@ def test_record_graph_trace_tool_is_exposed():
 
     assert "Recorded graph trace" in result
     assert "sheep" in backend.recall_graph_memory("sheep lion")
+
+
+def test_structured_source_is_shared_but_citation_summaries_belong_to_traces():
+    backend = GraphMemoryBackend.create()
+    base = {"source_id": "run-17", "locator": "logs/run-17.txt", "revision": "a1", "observed_at": "2026-09-19T10:00:00Z"}
+    traces = [
+        backend.record_graph_trace(
+            situation="parser check",
+            rationale="read test output",
+            action="reported test",
+            outcome="failed",
+            subject="parser@linux",
+            evidence_refs=[{**base, "summary": summary}],
+            agent_id=agent,
+        )
+        for agent, summary in [("worker-a", "parser failed"), ("worker-b", "empty input failed")]
+    ]
+    source_id = "evidence-source-" + hashlib.sha256(b"run-17").hexdigest()
+    source = backend.store.get_node("EvidenceSource", source_id)
+    assert source is not None
+    assert source.properties["locator"] == "logs/run-17.txt"
+    assert source.properties["observed_at"] == "2026-09-19T10:00:00+00:00"
+    for trace_id, summary in zip(traces, ("parser failed", "empty input failed"), strict=True):
+        edges = backend.store.get_neighbors("Trace", trace_id).edges
+        assert any(edge.relationship == "CITES" and edge.target_id == source_id and edge.properties["summary"] == summary for edge in edges)
+    separate = backend.record_graph_trace(
+        situation="parser check",
+        rationale="read test output",
+        action="reported test",
+        outcome="failed",
+        subject="parser@linux",
+        evidence_refs=[{"source_id": "run-18", "locator": "logs/run-17.txt", "summary": "parser failed"}],
+    )
+    assert separate not in traces
+    assert backend.store.get_node("EvidenceSource", "evidence-source-" + hashlib.sha256(b"run-18").hexdigest()) is not None
+    context = backend.recall_graph_memory("run-17", anchors=[f"/graph/nodes/EvidenceSource/{source_id}.md"], max_nodes=3)
+    assert "parser@linux" in context and "cited sources" in context
+    assert "logs/run-17.txt" in context
+    complete = backend.recall_graph_memory(
+        "parser@linux", anchors=[f"/graph/nodes/EvidenceSource/{source_id}.md"], max_nodes=100, max_edges=200, token_budget=10000
+    )
+    assert "Distinct cited source IDs in returned findings: 2; independence not established." in complete
+
+
+def test_structured_source_identity_conflict_rolls_back_and_is_scoped():
+    store = KuzuGraphStore.memory()
+    left = GraphMemoryBackend(store, namespace=("left",))
+    right = GraphMemoryBackend(store, namespace=("right",))
+    payload = dict(situation="check", rationale="output", action="ran test", outcome="failed")
+    left.record_graph_trace(trace_id="first", evidence_refs=[{"source_id": "run-17", "locator": "logs/a", "revision": "a1"}], **payload)
+    with pytest.raises(GraphMemoryValidationError, match="conflicting identity"):
+        left.record_graph_trace(
+            trace_id="conflict",
+            evidence_refs=[{"source_id": "a-new", "locator": "logs/new"}, {"source_id": "run-17", "locator": "logs/a", "revision": "a2"}],
+            **payload,
+        )
+    assert store.get_node("Trace", "conflict", scope_key="left") is None
+    assert store.get_node("EvidenceSource", "evidence-source-" + hashlib.sha256(b"a-new").hexdigest(), scope_key="left") is None
+    right.record_graph_trace(trace_id="other", evidence_refs=[{"source_id": "run-17", "locator": "logs/b"}], **payload)
+    assert store.get_node("Trace", "other", scope_key="right") is not None
+
+
+def test_structured_refs_validate_duplicates_and_retry_fingerprint():
+    backend = GraphMemoryBackend.create()
+    payload = dict(situation="check", rationale="output", action="ran test", outcome="failed", operation_id="check-17")
+    ref = {"source_id": "run-17", "locator": "logs/a"}
+    first = backend.record_graph_trace(evidence_refs=[ref, dict(ref)], **payload)
+    assert backend.record_graph_trace(evidence_refs=[dict(ref)], **payload) == first
+    ordered = [
+        {"source_id": "run-18", "locator": "logs/b", "observed_at": "2026-09-19T10:00:00Z"},
+        {"source_id": "run-19", "locator": "logs/c"},
+    ]
+    canonical = backend.record_graph_trace(evidence_refs=ordered, **{**payload, "operation_id": "check-18"})
+    reversed_refs = [{"source_id": "run-19", "locator": "logs/c"}, {**ordered[0], "observed_at": "2026-09-19T06:00:00-04:00"}]
+    assert backend.record_graph_trace(evidence_refs=reversed_refs, **{**payload, "operation_id": "check-18"}) == canonical
+    with pytest.raises(GraphMemoryValidationError, match="different request"):
+        backend.record_graph_trace(evidence_refs=[{"source_id": "run-18", "locator": "logs/a"}], **payload)
+    for refs in (
+        [{"source_id": "run-17"}],
+        [{**ref, "unsupported": "x"}],
+        [{**ref, "observed_at": "yesterday"}],
+        [ref, {**ref, "summary": "different"}],
+    ):
+        with pytest.raises(GraphMemoryValidationError):
+            backend.record_graph_trace(evidence_refs=refs, situation="check", rationale="output", action="ran test", outcome="failed")
+
+
+def test_record_graph_trace_tool_accepts_structured_refs():
+    backend = GraphMemoryBackend.create()
+    record = {tool.name: tool for tool in graph_memory_tools(backend)}["record_graph_trace"]
+    result = record.invoke(
+        {
+            "situation": "test failed", "rationale": "read log", "action": "ran test", "outcome": "failed",
+            "evidence_refs": [{"source_id": "tool-run", "locator": "logs/tool-run"}],
+        }
+    )
+    assert result.startswith("Recorded graph trace")
+    source_id = "evidence-source-" + hashlib.sha256(b"tool-run").hexdigest()
+    assert backend.store.get_node("EvidenceSource", source_id) is not None
+
+
+@pytest.mark.parametrize("malformed", [None, 42])
+def test_recall_ignores_malformed_low_level_evidence_refs_when_counting(malformed):
+    backend = GraphMemoryBackend.create()
+    subject_id = "subject-" + hashlib.sha256(b"question").hexdigest()
+    backend.add_graph_node("Subject", subject_id, {"value": "question"})
+    backend.add_graph_node("Trace", "malformed", {"subject": "question", "outcome": "unknown", "evidence_refs": malformed})
+    backend.add_graph_edge("Trace", "malformed", "ABOUT", "Subject", subject_id)
+    context = backend.recall_graph_memory("question", anchors=["/graph/nodes/Trace/malformed.md"], token_budget=10000)
+    assert "Trace: malformed" in context

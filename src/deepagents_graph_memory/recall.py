@@ -275,7 +275,7 @@ def _review_dependencies(
                     unknown = True
                 if ("Trace", trace_id, "BASED_ON", "Trace", premise_id) not in state.edges:
                     unknown = True
-                if not premise.properties.get("evidence") and not premise.properties.get("depends_on") or (
+                if not (premise.properties.get("evidence") or premise.properties.get("evidence_refs") or premise.properties.get("depends_on")) or (
                     premise.properties.get("finding_type") == "state" and finding_observed_timestamp(premise) is None
                 ):
                     unknown = True
@@ -362,7 +362,7 @@ def _expand_subject_findings(
         trace_id = node.properties.get("trace_id")
         if trace is None and isinstance(trace_id, str):
             trace = store.get_node("Trace", trace_id, scope_key=scope_key)
-        if trace is None and seed.label in {"Artifact", "Evidence"}:
+        if trace is None and seed.label in {"Artifact", "Evidence", "EvidenceSource"}:
             neighbors = store.get_neighbors(seed.label, seed.node_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges)
             if neighbors is not None:
                 state.related_incomplete |= neighbors.truncated_nodes or neighbors.truncated_edges
@@ -639,9 +639,22 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
         prefix += "Dependency status unknown; inspect dependencies.\n"
     if state.dependency_notices:
         prefix += "Some conclusions need recheck.\n"
+    available_tokens = max(1, token_budget - (len(prefix) + 3) // 4)
+    if state.related_findings and not incomplete and not state.search_truncated:
+        source_ids = {
+            ref["source_id"]
+            for record in state.nodes.values()
+            if record.node.label == "Trace"
+            if isinstance(record.node.properties.get("evidence_refs"), list)
+            for ref in record.node.properties.get("evidence_refs", [])
+            if isinstance(ref, dict) and isinstance(ref.get("source_id"), str)
+        }
+        count_line = f"Distinct cited source IDs in returned findings: {len(source_ids)}; independence not established."
+        if source_ids and sum(len(line) + 1 for line in [*lines, count_line]) <= max(available_tokens * 4, 80):
+            lines.append(count_line)
     return prefix + _fit_token_budget(
         lines,
-        max(1, token_budget - (len(prefix) + 3) // 4),
+        available_tokens,
         related_findings=state.related_findings,
         related_incomplete=incomplete,
     )
@@ -702,7 +715,12 @@ def _finding_history(state: _RecallState) -> list[str]:
         outcome = trace.properties.get("outcome", "unknown")
         source = trace.properties.get("source", "unknown")
         evidence = trace.properties.get("evidence", "unknown")
-        lines.append(f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}; outcome: {outcome}; source: {source}; evidence: {evidence}")
+        refs = trace.properties.get("evidence_refs")
+        citations = f"; cited sources: {json.dumps(refs, sort_keys=True)}" if refs else ""
+        lines.append(
+            f"- [Trace: {trace.id}]({path}) — {status}; observed_at: {observed}; "
+            f"outcome: {outcome}; source: {source}; unstructured evidence reports: {evidence}{citations}"
+        )
     return [*lines, ""]
 
 

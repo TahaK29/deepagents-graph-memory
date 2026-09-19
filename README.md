@@ -172,6 +172,33 @@ visible when the budget fits them. A partial history is labeled incomplete, and
 an omitted anchor gets a direct path to inspect. This currently scans one subject's
 traces during recall, so very large subjects may cost more to read.
 
+Structured `evidence_refs` identify captured sources across reports. The caller
+assigns a distinct `source_id` to each actual execution or snapshot at collection;
+`locator` points to its log, file, or document. Reusing that ID cites the same
+source, while changing its locator, revision, or observation time raises an error.
+Optional `summary` describes a reporter's reading and belongs to that citation.
+Plain `evidence` strings still work, but are unstructured caller reports. Neither
+kind of evidence is fetched or verified by the graph. Distinct cited sources are
+not necessarily independent experiments, and partial recall cannot establish a
+complete source count.
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+
+graph = GraphMemoryBackend.create()
+ref = {
+    "source_id": "pytest-run-17", "locator": "logs/pytest-run-17.txt",
+    "revision": "commit-a1", "observed_at": "2026-09-19T10:00:00Z",
+}
+for agent, summary in [("worker-a", "empty input failed"), ("worker-b", "parser failed")]:
+    graph.record_graph_trace(
+        situation="parser check", rationale="read pytest output", action="reported result",
+        outcome="failed", subject="parser@linux", agent_id=agent,
+        evidence_refs=[{**ref, "summary": summary}],
+    )
+print(graph.recall_graph_memory("parser@linux", max_nodes=3))
+```
+
 Conclusions can cite prior Trace IDs with `depends_on`. The targets must already
 exist in the same namespace. Recall follows these links within its node, edge,
 and depth budgets. If a cited finding is explicitly superseded or reviewed in a
@@ -207,8 +234,8 @@ assert "needs recheck" in context
 ```
 
 Use `operation_id` when retrying the same trace write. Replaying the same request
-returns its original trace ID without changing the graph; changing any request
-field under that ID raises `GraphMemoryValidationError`. A new execution needs a
+returns its original trace ID without changing the graph; changing the normalized
+request under that ID raises `GraphMemoryValidationError`. A new execution needs a
 new ID, even if its text is identical. The identity is scoped to the backend
 namespace, and `operation_id` cannot be combined with `trace_id`.
 

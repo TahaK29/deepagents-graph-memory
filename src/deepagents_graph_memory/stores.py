@@ -215,7 +215,10 @@ def finding_observed_timestamp(node: GraphNode) -> float | None:
 
 def valid_finding_link(newer: GraphNode, older: GraphNode, relationship: str, *, reviewed_count: int = 0) -> bool:
     """Check whether a finding update or resolution has valid recorded semantics."""
-    if newer.properties.get("subject") != older.properties.get("subject") or not newer.properties.get("evidence"):
+    subject = newer.properties.get("subject")
+    if not isinstance(subject, str) or not subject.strip() or subject != older.properties.get("subject"):
+        return False
+    if not (newer.properties.get("evidence") or newer.properties.get("evidence_refs")):
         return False
     if relationship == "RESOLVES":
         return reviewed_count >= 2

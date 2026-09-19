@@ -250,6 +250,7 @@ class GraphMemoryBackend(BackendProtocol):
         operation_id: str | None = None,
         artifacts: Sequence[str] | None = None,
         evidence: Sequence[str] | None = None,
+        evidence_refs: list[dict[str, str]] | None = None,
         run_id: str | None = None,
         agent_id: str | None = None,
         subagent_id: str | None = None,
@@ -273,6 +274,7 @@ class GraphMemoryBackend(BackendProtocol):
             operation_id: Optional stable identity reused only for retrying this exact request.
             artifacts: Optional files or artifacts involved in the action.
             evidence: Optional evidence supporting the rationale or outcome.
+            evidence_refs: Optional references to captured evidence sources.
             run_id: Optional run scope id.
             agent_id: Optional agent id.
             subagent_id: Optional subagent id.
@@ -315,6 +317,7 @@ class GraphMemoryBackend(BackendProtocol):
             raise GraphMemoryValidationError(msg)
         artifacts = [_validate_trace_text(value, field="artifact") for value in artifacts or []]
         evidence = [_validate_trace_text(value, field="evidence") for value in evidence or []]
+        evidence_refs = _normalize_evidence_refs(evidence_refs)
         if subject is not None:
             subject = validate_subject(subject)
         if not isinstance(finding_type, str) or finding_type not in {"state", "interpretation"}:
@@ -324,13 +327,13 @@ class GraphMemoryBackend(BackendProtocol):
         if supersedes_supplied and (not isinstance(supersedes, list) or any(not isinstance(item, str) for item in supersedes)):
             raise GraphMemoryValidationError("supersedes must be a list of trace IDs.")
         supersedes = list(dict.fromkeys(validate_node_id(item) for item in supersedes or []))
-        if supersedes and (subject is None or finding_type != "state" or observed_at is None or not evidence):
+        if supersedes and (subject is None or finding_type != "state" or observed_at is None or not (evidence or evidence_refs)):
             raise GraphMemoryValidationError("supersedes requires a subject, state finding, observed_at, and evidence.")
         resolves_supplied = resolves is not None
         if resolves_supplied and (not isinstance(resolves, list) or any(not isinstance(item, str) for item in resolves)):
             raise GraphMemoryValidationError("resolves must be a list of trace IDs.")
         resolves = list(dict.fromkeys(validate_node_id(item) for item in resolves or []))
-        if resolves and (subject is None or not evidence or len(resolves) < 2 or supersedes):
+        if resolves and (subject is None or not (evidence or evidence_refs) or len(resolves) < 2 or supersedes):
             raise GraphMemoryValidationError("resolves requires a subject, evidence, at least two distinct traces, and no supersedes.")
         if depends_on is not None and (not isinstance(depends_on, list) or any(not isinstance(item, str) for item in depends_on)):
             raise GraphMemoryValidationError("depends_on must be a list of trace IDs.")
@@ -355,7 +358,7 @@ class GraphMemoryBackend(BackendProtocol):
             raise GraphMemoryValidationError("operation_id and request_fingerprint are reserved trace metadata.")
         if any(
             key in metadata
-            for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "depends_on", "evidence")
+            for key in ("subject", "finding_type", "observed_at", "recorded_at", "supersedes", "resolves", "depends_on", "evidence", "evidence_refs")
         ):
             raise GraphMemoryValidationError("subject, finding, time, supersession, and evidence metadata must use their explicit arguments.")
         for key, value in reserved.items():
@@ -374,6 +377,7 @@ class GraphMemoryBackend(BackendProtocol):
                 "outcome": outcome,
                 "artifacts": sorted(set(artifacts)),
                 "evidence": sorted(set(evidence)),
+                "evidence_refs": evidence_refs,
                 "run_id": run_id,
                 "agent_id": agent_id,
                 "subagent_id": subagent_id,
@@ -398,6 +402,7 @@ class GraphMemoryBackend(BackendProtocol):
                 "outcome": outcome,
                 "recorded_at": recorded_at,
                 "evidence": evidence,
+                "evidence_refs": evidence_refs,
                 **({"operation_id": operation_id, "request_fingerprint": request_fingerprint} if operation_id is not None else {}),
                 **({"subject": subject, "finding_type": finding_type} if subject is not None else {}),
                 **({"observed_at": observed_at} if observed_at is not None else {}),
@@ -539,6 +544,20 @@ class GraphMemoryBackend(BackendProtocol):
                 self._add_trace_edge(
                     "Evidence", evidence_id, "SUPPORTS", "Outcome", f"{trace_id}-outcome", scope_key=scope_key, metadata=edge_metadata
                 )
+            for ref in evidence_refs:
+                source_id = _value_id("evidence-source", ref["source_id"])
+                identity = {key: ref[key] for key in ("source_id", "locator", "revision", "observed_at") if key in ref}
+                source = self.store.get_node("EvidenceSource", source_id, scope_key=scope_key)
+                if source is not None and any(
+                    source.properties.get(key) != identity.get(key) for key in ("source_id", "locator", "revision", "observed_at")
+                ):
+                    raise GraphMemoryValidationError(f"EvidenceSource/{source_id} has conflicting identity metadata.")
+                if source is None:
+                    self.store.add_node("EvidenceSource", source_id, properties=merge_metadata(identity, scope_key=scope_key), scope_key=scope_key)
+                citation_metadata = {key: value for key, value in edge_metadata.items() if key != "summary"}
+                if "summary" in ref:
+                    citation_metadata["summary"] = ref["summary"]
+                self._add_trace_edge("Trace", trace_id, "CITES", "EvidenceSource", source_id, scope_key=scope_key, metadata=citation_metadata)
 
         return trace_id
 
@@ -747,6 +766,31 @@ def _validate_trace_text(value: str, *, field: str) -> str:
         msg = f"{field} must not contain NUL bytes or unsafe control characters."
         raise GraphMemoryValidationError(msg)
     return normalized
+
+
+def _normalize_evidence_refs(refs: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    if refs is None:
+        return []
+    if not isinstance(refs, list) or len(refs) > 50:
+        raise GraphMemoryValidationError("evidence_refs must be a list of at most 50 references.")
+    limits = {"source_id": 512, "locator": 2048, "revision": 512, "observed_at": 64, "summary": 1000}
+    normalized: dict[str, dict[str, str]] = {}
+    for ref in refs:
+        if not isinstance(ref, dict) or not {"source_id", "locator"} <= ref.keys() or ref.keys() - limits.keys():
+            raise GraphMemoryValidationError("evidence_refs require source_id and locator and allow only revision, observed_at, and summary.")
+        item: dict[str, str] = {}
+        for key, limit in limits.items():
+            if key not in ref:
+                continue
+            value = _validate_trace_text(ref[key], field=f"evidence_refs.{key}")
+            if len(value) > limit:
+                raise GraphMemoryValidationError(f"evidence_refs.{key} must be at most {limit} characters.")
+            item[key] = _normalize_observed_at(value) if key == "observed_at" else value
+        previous = normalized.get(item["source_id"])
+        if previous is not None and previous != item:
+            raise GraphMemoryValidationError(f"evidence_refs has conflicting references for source_id {item['source_id']!r}.")
+        normalized[item["source_id"]] = item
+    return [normalized[source_id] for source_id in sorted(normalized)]
 
 
 def _normalize_observed_at(value: str) -> str:

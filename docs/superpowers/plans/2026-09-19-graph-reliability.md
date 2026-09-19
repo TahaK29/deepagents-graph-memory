@@ -184,9 +184,9 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 **Additional cases:** two agents paraphrasing one source, two executions with identical text, changed revision under reused source ID, incomplete references, unsupported keys, same source ID in separate namespaces, citation truncation, backward-compatible evidence strings, retry identity including references, atomic rollback.
 
-- [ ] Test source deduplication and conflicting identity metadata before implementation.
-- [ ] Add source references through the existing primitives and show citations in recall.
-- [ ] Parent checks no inferred independence/truth claims, then verifies and commits.
+- [x] Test source deduplication and conflicting identity metadata before implementation.
+- [x] Add source references through the existing primitives and show citations in recall.
+- [x] Parent checks no inferred independence/truth claims, then verifies and commits.
 
 ## Task 6: Workflow evaluation rather than a feature-count claim
 

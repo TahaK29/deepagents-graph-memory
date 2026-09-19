@@ -8,6 +8,7 @@ import pytest
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
 from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.stores import GraphNode, valid_finding_link
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -23,6 +24,12 @@ def record(backend: GraphMemoryBackend, trace_id: str, outcome: str, **kwargs: o
         evidence=[f"pytest output: {outcome}"],
         **kwargs,
     )
+
+
+def test_low_level_update_without_subject_is_not_a_valid_finding_link():
+    newer = GraphNode("Trace", "newer", {"evidence_refs": [{"source_id": "run", "locator": "log"}]})
+    older = GraphNode("Trace", "older")
+    assert not valid_finding_link(newer, older, "RESOLVES", reviewed_count=2)
 
 
 def test_observed_time_and_supersession_preserve_history_and_branches():
@@ -163,6 +170,70 @@ def test_tool_accepts_subject_fields():
         }
     )
     assert result.startswith("Recorded graph trace")
+
+
+def test_structured_refs_support_updates_resolutions_and_dependency_review():
+    backend = GraphMemoryBackend.create()
+    premise = backend.record_graph_trace(
+        trace_id="evidenced-premise",
+        situation="test result",
+        rationale="read log",
+        action="checked",
+        outcome="confirmed",
+        evidence_refs=[{"source_id": "run-premise", "locator": "logs/premise"}],
+    )
+    fresh_decision = backend.record_graph_trace(
+        trace_id="fresh-decision",
+        situation="test result",
+        rationale="relied on result",
+        action="decided",
+        outcome="continue",
+        depends_on=[premise],
+    )
+    fresh_context = backend.recall_graph_memory("continue", anchors=[f"/graph/nodes/Trace/{fresh_decision}.md"])
+    assert "Dependency status unknown" not in fresh_context
+    common = dict(situation="parser check", rationale="read log", action="ran test", subject="parser@linux", finding_type="state")
+    backend.record_graph_trace(trace_id="old", outcome="failed", observed_at="2026-09-19T10:00:00Z", **common)
+    backend.record_graph_trace(
+        trace_id="new",
+        outcome="passed",
+        observed_at="2026-09-19T11:00:00Z",
+        supersedes=["old"],
+        evidence_refs=[{"source_id": "run-new", "locator": "logs/new"}],
+        **common,
+    )
+    decision = backend.record_graph_trace(
+        trace_id="decision",
+        situation="parser status",
+        rationale="old result",
+        action="decided",
+        outcome="disable parser",
+        depends_on=["old"],
+    )
+    context = backend.recall_graph_memory("disable parser", anchors=[f"/graph/nodes/Trace/{decision}.md"])
+    assert "needs recheck" in context
+    assert "run-new" in context and "logs/new" in context
+
+    for trace_id, outcome in [("cause-a", "cache"), ("cause-b", "parser")]:
+        backend.record_graph_trace(
+            trace_id=trace_id,
+            situation="investigation",
+            rationale="initial guess",
+            action="inspected",
+            outcome=outcome,
+            subject="parser::cause",
+        )
+    backend.record_graph_trace(
+        trace_id="resolution-refs",
+        situation="investigation",
+        rationale="compared runs",
+        action="reran",
+        outcome="parser",
+        subject="parser::cause",
+        resolves=["cause-a", "cause-b"],
+        evidence_refs=[{"source_id": "run-resolution", "locator": "logs/resolution"}],
+    )
+    assert "reviewed in resolution" in backend.recall_graph_memory("cache", anchors=["/graph/nodes/Trace/cause-a.md"])
 
 
 def test_explicit_resolution_reviews_competing_interpretations_without_deleting_them():
