@@ -11,9 +11,10 @@ artifacts were touched, what failed, what succeeded, and what evidence supports 
 current plan.
 
 Deep Agents already have a virtual filesystem (VFS). The VFS is good for raw files,
-notes, logs, summaries, large tool outputs, and context offloading. This project is
-the graph alternative for relationship-heavy work: when VGS is enabled, the graph
-tools should be on and the default VFS tools should be hidden from the agent.
+notes, logs, summaries, large tool outputs, and context offloading. This project
+adds graph context alongside that filesystem. The recommended setup keeps both
+toolsets available and links recorded findings to source artifacts. Graph-only
+profiles remain an explicit option for applications that omit file tools.
 
 ## Core Claim
 
@@ -36,11 +37,16 @@ Default Deep Agents
   VFS tools on
   graph tools off
 
-VGS mode
-  VFS tools hidden
+Combined VGS + VFS
+  VFS tools on for files and tool dumps
   Kuzu graph backend on
   graph tools passed explicitly by caller
-  structured entities, relationships, provenance, decisions, outcomes
+  agent-local guidance for selective graph use and evidence verification
+  optional read-only /graph/ mount through native CompositeBackend
+
+Optional graph-only profile
+  VFS tools hidden for the registered model key
+  graph tools passed explicitly by caller
 ```
 
 ## What This Is
@@ -52,7 +58,8 @@ It provides:
 - A read-only `/graph/` generated path surface.
 - Controlled graph write tools.
 - A recall tool that retrieves a relevant graph slice under budgets.
-- A harness-profile helper that hides the default Deep Agents VFS tools.
+- Agent-local graph guidance that preserves filesystem tools and instructions.
+- An optional graph-only profile that hides the default filesystem tools.
 - A Kuzu-backed runtime path.
 
 The graph database is the source of truth for graph facts. The Markdown files under
@@ -76,8 +83,10 @@ summaries, notes, and other mostly linear text.
 ## Relationship To Deep Agents VFS
 
 Deep Agents expose file tools such as `ls`, `read_file`, `write_file`, `edit_file`,
-`grep`, and `glob`. In VGS mode, this package hides those tools through a
-`HarnessProfile` so the agent uses graph tools instead of the normal VFS surface.
+`grep`, and `glob`. Combined use leaves those tools and their guidance intact.
+`graph_context_middleware()` adds graph guidance to the agent where it is
+configured; callers supply graph tools explicitly. It does not register a global
+model profile or replace the application's backend.
 
 The graph is projected into paths such as:
 
@@ -90,9 +99,15 @@ The graph is projected into paths such as:
 
 These paths exist because Deep Agents backends speak file-like paths internally, and
 they remain useful for memory loading, direct backend calls, tests, and debugging.
-In the intended VGS mode, the agent-facing read path is `recall_graph_memory`, not
-normal VFS file tools. The caller passes graph tools explicitly. Writes go through
-graph tools so validation, provenance, and schema discipline can be enforced.
+`recall_graph_memory` finds connected context; file tools can inspect exact graph
+views when the graph is mounted at `/graph/` through native `CompositeBackend`.
+The default backend remains writable for files and offloaded tool results. Graph
+writes go through controlled graph tools; generated graph views reject mutation.
+No new routing or synchronization layer is needed.
+
+The existing graph-only profile deliberately removes filesystem tools and
+guidance. Its model-wide registration must not be used for combined-mode agents;
+agent-local middleware cannot reverse previously registered tool exclusions.
 
 ## Storage Lifetime
 
@@ -175,12 +190,25 @@ todo system.
 
 ### VFS
 
-Default Deep Agents VFS remains the right tool for file-like work when VGS is off.
-When VGS is on, the default VFS tools should be hidden from the agent.
+VFS holds actual artifacts, working files, and full tool dumps. VGS records
+selected findings, dependencies, and decisions with references to that evidence.
+Direct file tasks start with file tools; questions about prior attempts or
+dependencies start with graph recall. Neither path requires searching both stores
+for every task. Native filesystem middleware continues to handle large-output
+offloading and its readback guidance.
 
-The graph can still store structured links to artifacts, paths, commits, reports,
-tool calls, and evidence, but those links are graph nodes and edges rather than
-files the agent edits directly.
+Capture evidence before recording a claim about it, and identify the actual
+source and revision where possible. A path alone does not establish historical
+content. Missing, inaccessible, or changed evidence is not current verification.
+These are agent instructions, not automatic source checks. File writes and graph
+transactions commit independently; retry a failed trace recording using its
+operation identity without repeating a successful external action.
+
+The graph does not copy or persist referenced files. Applications choose VFS
+storage lifetime separately from Kuzu persistence. Long-lived findings may outlast
+thread-local dumps; readers must handle unavailable evidence. Keep physical Kuzu
+files outside the agent's writable workspace, and use existing VFS permissions
+for artifact access. Graph namespaces are not an authorization boundary.
 
 ### RubricMiddleware
 
@@ -206,6 +234,11 @@ Default preference:
 - Use one shared store for a parent run or workspace, with a project/workspace namespace.
 - Pass `agent_id`, `subagent_id`, and `run_id` explicitly on trace writes.
 - Let the main agent recall across subagent outputs through graph traversal.
+
+Configure combined graph guidance and tools explicitly on each relevant subagent,
+including a general-purpose override when needed. Parent middleware does not
+automatically propagate to all workers. Workers need access to the evidence
+locations they cite; remote or precompiled agents require their own setup.
 
 Separate physical graphs per subagent are simpler to isolate, but make cross-subagent
 recall harder. Prefer scoped subgraphs unless isolation is more important than shared
@@ -288,7 +321,7 @@ traceable workflow graphs rather than arbitrary node and edge spam.
 The graph read path should be budgeted and targeted.
 
 The agent should usually read graph context through `recall_graph_memory(query)`.
-With VFS tools hidden, developers can call backend `read()` on
+With `/graph/` mounted, agents can use file tools and developers can call backend `read()` on
 `/graph/nodes/{label}/{id}.md` to inspect one entity and bounded one-hop
 relationships, or `/graph/search/{query}.md` for keyword and relationship-label
 search. Backend `ls()` discovers paths, subject to its node limit.
@@ -380,7 +413,8 @@ single-step tasks.
 This project is working if:
 
 - Agents can inspect graph context through `recall_graph_memory` and generated backend views.
-- VGS mode hides default Deep Agents VFS tools.
+- Combined use preserves filesystem tools, source readback, and tool-output offloading.
+- The optional graph-only profile continues to hide filesystem tools explicitly.
 - Agents can write structured facts without raw graph queries.
 - The graph helps answer relationship questions faster than plain files.
 - The graph improves resume and non-repetition behavior in long-running tasks.

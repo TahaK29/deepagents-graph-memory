@@ -71,29 +71,86 @@ pip install deepagents-graph-memory
 
 ```python
 from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend
 from deepagents_graph_memory import (
     GraphMemoryBackend,
+    graph_context_middleware,
     graph_memory_tools,
-    register_vgs_harness_profile,
 )
 
 MODEL = "google_genai:gemini-3.5-flash"
 
-# Hide default VFS tools and add graph prompt guidance
-register_vgs_harness_profile(MODEL)
-
 # In-memory Kuzu graph -- no disk, no config
 graph_backend = GraphMemoryBackend.create()
+graph_tools = graph_memory_tools(graph_backend)
 
 agent = create_deep_agent(
     model=MODEL,
-    tools=[*graph_memory_tools(graph_backend)],  # pass graph tools explicitly
+    tools=graph_tools,
+    middleware=[graph_context_middleware()],
     memory=["/graph/index.md", "/graph/schema.md"],
-    backend=graph_backend,
+    backend=CompositeBackend(
+        default=StateBackend(),  # Working files and offloaded tool results.
+        routes={"/graph/": graph_backend},  # Read-only graph inspection.
+    ),
+    subagents=[{
+        # Configure the default worker explicitly so it also gets graph guidance.
+        "name": "general-purpose",
+        "description": "Investigate a focused task and return findings with evidence.",
+        "system_prompt": "Complete the assigned task and report findings with source paths.",
+        "tools": graph_tools,
+        "middleware": [graph_context_middleware()],
+    }],
 )
 ```
 
 Configure the selected model provider integration and credentials separately. The no-provider-key example below only exercises backend inspection.
+
+## Using VGS and VFS Together
+
+Keep filesystem tools available for files, scratch work, and full tool output.
+Use the graph to connect meaningful findings, failed attempts, decisions, and
+outcomes to their evidence. A test log belongs in VFS; a trace can record what
+failed, what changed, and which test run supports the result.
+
+`graph_context_middleware()` adds this guidance to one agent without changing
+model-wide profiles or removing filesystem instructions. Pass graph tools
+explicitly. Add the middleware and graph tools to each subagent that needs them;
+parent middleware does not automatically propagate to every subagent. The quick
+start overrides the built-in general-purpose worker for this reason. Precompiled
+or remote agents need their own setup and access to the evidence they cite.
+
+The first lookup depends on the task: read a known file directly for a file edit,
+or recall earlier attempts and dependencies when resuming work. Verify current
+files or tool results before relying on historical findings. Record selective
+outcomes rather than mirroring every read, file, or log line into the graph.
+
+Deep Agents' existing filesystem middleware can offload large tool responses
+under `/large_tool_results/`. Keep that location on a writable VFS backend so the
+agent can use `read_file` and `grep` to inspect the dump. This package does not
+change the offload threshold or copy the full dump into Kuzu. When recording a
+finding, use `evidence_refs` to cite the actual saved location and source identity,
+including the revision or observation time when known.
+
+Save captured evidence before recording a claim about it. File and graph writes
+are separate operations: if trace recording fails after an action succeeded,
+retry the recording with its operation ID rather than repeating the action.
+Missing, inaccessible, or changed evidence cannot verify the original finding.
+The middleware provides agent guidance; it does not fetch sources or enforce
+atomic writes across VFS and Kuzu.
+
+You can keep your existing filesystem backend and add only the graph tools and
+middleware. Mounting `/graph/` through the native `CompositeBackend` is optional;
+it enables read-only file inspection of graph views. `write_file`, `edit_file`,
+and uploads cannot mutate those views. Keep the physical Kuzu database outside
+the agent's writable file workspace. Ordinary preferences, instructions, and
+notes remain in VFS or `/memories/`.
+
+**Storage lifetimes are separate.** `StateBackend` uses thread state; retaining
+those files across process restarts requires a durable checkpointer. Saving Kuzu
+with `path=...` does not persist VFS files. For evidence that must survive across
+threads or deployments, configure a suitable persistent file/store backend and
+give readers access to it. Do not assume a saved graph makes an old dump available.
 
 ## Persistent Storage
 
@@ -435,9 +492,10 @@ print(backend.read("/graph/search/scope.md").file_data["content"])
 
 For a missing answer, read the exact known node path first. A "not found" error means that node is absent from the active scope; a returned page lets you inspect its text, provenance, and relationships. Then try `backend.recall_graph_memory("scope test", anchors=[node_path])` to start recall at that node. `ls()` helps discover paths, but its output is bounded by `max_nodes`, so an absent listing entry does not prove absence; increase `max_nodes` if needed. Inspection bypasses recall's relevance selection, while node relationships still obey `max_nodes` and `max_edges`. `read()` also accepts line `offset` and `limit`.
 
-## VGS Mode
+## Optional Graph-Only Mode
 
-When VGS (Virtual Graph System) is enabled via `register_vgs_harness_profile`:
+For applications that deliberately omit filesystem tools, the existing
+`register_vgs_harness_profile(model)` helper enables graph-only behavior:
 
 - Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
 - VGS prompt guidance is added
@@ -445,7 +503,11 @@ When VGS (Virtual Graph System) is enabled via `register_vgs_harness_profile`:
 
 With file tools hidden, agents use `recall_graph_memory`, which queries the graph store directly. `memory=["/graph/index.md", "/graph/schema.md"]` loads those two views into agent context; it does not enable interactive graph browsing. Developers can still inspect through `GraphMemoryBackend.ls()`, `read()`, `glob()`, and `grep()`.
 
-VGS should be **off by default** in a normal Deep Agents install. Enable it only when graph-structured context is needed.
+Use the combined setup above when the agent needs files or offloaded tool output.
+The graph-only helper changes the profile for a model key throughout the process;
+do not register it for a model used by combined-mode agents. Adding
+`graph_context_middleware()` does not undo an existing tool exclusion. Graph tools
+remain opt-in for ordinary Deep Agents applications.
 
 ## Architecture
 
@@ -461,7 +523,7 @@ graph TB
         Recall["Recall Engine<br/><i>recall.py</i>"]
         Renderers["Markdown Renderers<br/><i>renderers.py</i>"]
         Paths["Path Parser<br/><i>paths.py</i>"]
-        VGSProfile["VGS Harness Profile<br/><i>vgs.py</i>"]
+        VGSProfile["Graph Context Guidance<br/><i>vgs.py</i>"]
     end
 
     subgraph Store ["Storage"]
@@ -469,33 +531,35 @@ graph TB
     end
 
     Agent -->|"record_graph_trace<br/>recall_graph_memory"| Tools
+    Agent -->|"file tools"| VFS["VFS: Files and Tool Dumps"]
     Tools --> Backend
     Backend --> Recall
     Backend --> Renderers
     Backend --> Paths
     Recall --> Kuzu
     Renderers --> Kuzu
-    VGSProfile -.->|"hides VFS tools"| Agent
+    VGSProfile -.->|"guides graph and file use"| Agent
 
     style VGS fill:#1e293b,stroke:#334155,color:#e2e8f0
     style Store fill:#1e293b,stroke:#334155,color:#e2e8f0
 ```
 
-### Default vs VGS Mode
+### Combined and Graph-Only Setups
 
 ```mermaid
 graph LR
-    subgraph Default ["Default Deep Agents"]
+    subgraph Combined ["Combined Setup"]
         VFS["VFS Tools<br/>ls, read_file, write_file,<br/>edit_file, glob, grep"]
-    end
-
-    subgraph VGSMode ["VGS Mode"]
-        VFSHidden["VFS Tools<br/><s>hidden</s>"]
         GraphTools["Graph Tools<br/>recall_graph_memory<br/>record_graph_trace"]
+        GraphTools -->|"evidence references"| VFS
     end
 
-    Default -->|"register profile; pass graph tools"| VGSMode
-    VFSHidden ~~~ GraphTools
+    subgraph VGSMode ["Optional Graph-Only Profile"]
+        VFSHidden["VFS Tools<br/><s>hidden</s>"]
+        OnlyGraph["Graph Tools"]
+    end
+
+    VFSHidden ~~~ OnlyGraph
 
     style VFSHidden fill:#991b1b,stroke:#7f1d1d,color:#fecaca
     style GraphTools fill:#065f46,stroke:#064e3b,color:#a7f3d0
@@ -535,7 +599,7 @@ graph LR
 | **Tools** | `tools.py` | LangChain tools with error boundaries |
 | **Renderers** | `renderers.py` | Graph data &rarr; markdown view projections |
 | **Paths** | `paths.py` | Virtual path parsing and validation |
-| **VGS Profile** | `vgs.py` | Harness profile helpers and prompt middleware |
+| **Graph Guidance** | `vgs.py` | Agent-local combined guidance and optional graph-only profiles |
 | **Errors** | `errors.py` | `GraphMemoryError`, `GraphMemoryConfigurationError`, `GraphMemoryPathError`, `GraphMemoryValidationError` |
 
 ## Example Domain: SRE
