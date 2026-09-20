@@ -96,18 +96,29 @@ graph tools so validation, provenance, and schema discipline can be enforced.
 
 ## Storage Lifetime
 
-Durable storage is not the product promise. The main promise is better structured
-context during long-running work.
-
-Kuzu is the supported graph store. VGS uses Kuzu's in-memory database mode:
+Kuzu is the supported graph store. `GraphMemoryBackend.create()` defaults to
+Kuzu's in-memory database mode:
 
 ```python
 kuzu.Database(":memory:")
 ```
 
-The graph is a RAM scratchpad held by the store until the application releases it
-or the Python process exits. There is no per-invocation reset or on-disk storage.
-Do not add on-disk Kuzu paths or manual graph reset APIs.
+The default graph is a RAM scratchpad held by the store until the application
+closes it or the Python process exits. There is no per-invocation reset.
+
+Applications can opt into filesystem persistence with
+`GraphMemoryBackend.create(path=...)`. The path names a database file in an
+existing directory. Committed data remains when the store closes and can be
+reopened with the same project namespace. Open failures must not silently create
+an in-memory replacement. The application owns storage provisioning, permissions,
+and volume retention; no provider SDK, blob snapshot, or cloud deployment API is
+part of this feature.
+
+One process owns each writable database. Parent and subagents share one store;
+closing it affects all backends using it. Shutdown closes the connection before
+the database and releases the file lock. Replacement processes must wait for the
+previous owner to exit. Network filesystem compatibility requires separate
+locking and recovery validation; a mounted path alone does not establish support.
 
 The graph should not default to user-profile semantics. Preferred
 scopes are project/workflow oriented:
@@ -207,7 +218,9 @@ preserve creation time. When writers set the same property, the last successful
 writer wins. Artifact and Evidence nodes represent shared values; trace-specific
 provenance belongs on Trace/component nodes and their links. Namespace scopes
 data, not authorization; schema remains database-wide. Concurrent throughput is
-limited by the single store lock, and separate processes do not share the graph.
+limited by the single store lock. Separate processes cannot concurrently open
+the same writable graph; a persistent graph can pass to a new process after the
+old owner releases it.
 
 For a stable, narrow question within a namespace, a Trace can link to a Subject.
 Its `observed_at` records a supplied, timezone-aware observation time; `recorded_at`
@@ -291,8 +304,8 @@ The recall flow should:
 
 ## Kuzu Storage Dependency
 
-This package is intentionally Kuzu-first. The graph backend should use a real Kuzu
-database in memory.
+This package is intentionally Kuzu-first. The graph backend uses a real Kuzu
+database, in memory by default or on disk when a path is supplied.
 
 The main Deep Agents package should not pull Kuzu. That matters if this code is
 merged upstream: normal Deep Agents users should not download graph database

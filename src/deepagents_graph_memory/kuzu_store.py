@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import wraps
+from pathlib import Path
 from threading import RLock
 from typing import Any, cast
+from weakref import WeakValueDictionary
 
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
 from deepagents_graph_memory.paths import node_path, validate_identifier, validate_node_id
@@ -38,6 +41,10 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised when package is absent
     raise ImportError("Kuzu support requires the `kuzu` package.") from exc
 
+# Kuzu permits two writable handles to one file in a process; guard factory opens here.
+_disk_lock = RLock()
+_open_disk_stores: WeakValueDictionary[tuple[object, ...], KuzuGraphStore] = WeakValueDictionary()
+
 
 class _KuzuGraph:
     """Minimal query and schema adapter over a `kuzu.Connection`.
@@ -51,7 +58,11 @@ class _KuzuGraph:
     def __init__(self, database: Any) -> None:
         self.conn = kuzu.Connection(database)
         self.schema = ""
-        self.refresh_schema()
+        try:
+            self.refresh_schema()
+        except BaseException:
+            self.conn.close()
+            raise
 
     @property
     def get_schema(self) -> str:
@@ -61,11 +72,14 @@ class _KuzuGraph:
     def query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Execute a Cypher query and return rows as dictionaries."""
         result = self.conn.execute(query, params or {})
-        column_names = result.get_column_names()
-        rows: list[dict[str, Any]] = []
-        while result.has_next():
-            rows.append(dict(zip(column_names, result.get_next(), strict=False)))
-        return rows
+        try:
+            column_names = result.get_column_names()
+            rows: list[dict[str, Any]] = []
+            while result.has_next():
+                rows.append(dict(zip(column_names, result.get_next(), strict=False)))
+            return rows
+        finally:
+            result.close()
 
     def refresh_schema(self) -> None:
         """Reflect node and relationship tables into a schema string.
@@ -97,6 +111,7 @@ def _locked(method: Any) -> Any:
     @wraps(method)
     def wrapper(self: KuzuGraphStore, *args: Any, **kwargs: Any) -> Any:
         with self._lock:
+            self._require_open()
             return method(self, *args, **kwargs)
 
     return wrapper
@@ -114,13 +129,17 @@ def _atomic(method: Any) -> Any:
 class KuzuGraphStore:
     """Internal adapter for LangChain's Kuzu graph integration."""
 
-    def __init__(self, graph: Any) -> None:
+    def __init__(self, graph: Any, *, database: Any = None) -> None:
         """Initialize the adapter.
 
         Args:
             graph: LangChain Kuzu graph object.
+            database: Database owned by this store, if created by a factory.
         """
         self.graph = graph
+        self._database = database
+        self._closed = False
+        self._disk_keys: tuple[tuple[object, ...], ...] = ()
         self._fts_ready_labels: set[str] = set()
         # ponytail: one store lock serializes shared-connection work; split connections if throughput matters.
         self._lock = RLock()
@@ -131,6 +150,7 @@ class KuzuGraphStore:
     def transaction(self) -> Any:
         """Serialize and atomically group writes on the shared Kuzu connection."""
         with self._lock:
+            self._require_open()
             outermost = self._transaction_depth == 0
             if outermost:
                 self._query("BEGIN TRANSACTION;", {})
@@ -170,8 +190,91 @@ class KuzuGraphStore:
     @classmethod
     def memory(cls) -> KuzuGraphStore:
         """Create an in-memory Kuzu graph store."""
-        database = kuzu.Database(":memory:")
-        return cls(_KuzuGraph(database))
+        return cls._open(":memory:")
+
+    @classmethod
+    def disk(cls, path: str | Path) -> KuzuGraphStore:
+        """Create or reopen a graph at an existing filesystem parent."""
+        if not isinstance(path, str | Path):
+            msg = "Persistent graph path must be a string or pathlib.Path."
+            raise GraphMemoryConfigurationError(msg)
+        raw = str(path)
+        if not raw.strip() or raw == ":memory:" or "\x00" in raw or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", raw):
+            msg = "Persistent graph path must be a nonempty local filesystem path, not a URL or :memory:."
+            raise GraphMemoryConfigurationError(msg)
+        filename = Path(path)
+        if not filename.parent.is_dir():
+            msg = f"Persistent graph path parent does not exist: {filename.parent}"
+            raise GraphMemoryConfigurationError(msg)
+        if filename.is_dir():
+            msg = f"Persistent graph path points to a directory, expected a database file: {filename}"
+            raise GraphMemoryConfigurationError(msg)
+        try:
+            with _disk_lock:
+                resolved = filename.resolve()
+                keys: tuple[tuple[object, ...], ...] = (("path", str(resolved)),)
+                if resolved.exists():
+                    info = resolved.stat()
+                    keys += (("inode", info.st_dev, info.st_ino),)
+                if any(key in _open_disk_stores for key in keys):
+                    msg = f"Kuzu graph at path {filename} is already open in this process; reuse the existing backend.store."
+                    raise GraphMemoryConfigurationError(msg)
+                store = cls._open(str(resolved))
+                try:
+                    info = resolved.stat()
+                    store._disk_keys = (keys[0], ("inode", info.st_dev, info.st_ino))
+                    for key in store._disk_keys:
+                        _open_disk_stores[key] = store
+                    return store
+                except BaseException:
+                    store.close()
+                    raise
+        except OSError as exc:
+            msg = f"Could not access persistent graph path {filename}: {exc}"
+            raise GraphMemoryConfigurationError(msg) from exc
+
+    @classmethod
+    def _open(cls, path: str) -> KuzuGraphStore:
+        try:
+            database = kuzu.Database(path)
+        except Exception as exc:
+            msg = f"Could not open Kuzu graph at path {path!r}: {exc}"
+            raise GraphMemoryConfigurationError(msg) from exc
+        try:
+            return cls(_KuzuGraph(database), database=database)
+        except Exception as exc:
+            database.close()
+            msg = f"Could not initialize Kuzu graph at path {path!r}: {exc}"
+            raise GraphMemoryConfigurationError(msg) from exc
+        except BaseException:
+            database.close()
+            raise
+
+    def close(self) -> None:
+        """Release an owned Kuzu connection and database."""
+        with self._lock:
+            if self._closed:
+                return
+            if self._transaction_depth:
+                msg = "Cannot close a graph store during an active transaction."
+                raise GraphMemoryConfigurationError(msg)
+            self._closed = True
+            if self._database is not None:
+                try:
+                    self.graph.conn.close()
+                finally:
+                    try:
+                        self._database.close()
+                    finally:
+                        with _disk_lock:
+                            for key in self._disk_keys:
+                                if _open_disk_stores.get(key) is self:
+                                    del _open_disk_stores[key]
+
+    def _require_open(self) -> None:
+        if self._closed:
+            msg = "Graph store is closed. Create or reopen a backend before querying or writing."
+            raise GraphMemoryConfigurationError(msg)
 
     @_locked
     def get_schema(self, *, scope_key: str | None = None) -> str:
@@ -590,6 +693,7 @@ class KuzuGraphStore:
         self.graph.refresh_schema()
 
     def _query(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        self._require_open()
         if self._transaction_depth and self._rollback_only and query.strip().upper() != "ROLLBACK;":
             msg = "Graph transaction already failed; it must roll back."
             raise GraphMemoryConfigurationError(msg)

@@ -14,6 +14,7 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -81,13 +82,15 @@ class GraphMemoryBackend(BackendProtocol):
     def create(
         cls,
         *,
+        path: str | Path | None = None,
         namespace: Namespace = None,
         max_nodes: int = 50,
         max_edges: int = 100,
     ) -> GraphMemoryBackend:
-        """Create an in-memory Kuzu graph memory backend.
+        """Create a Kuzu graph memory backend.
 
         Args:
+            path: Persistent database file path; omitted for an in-memory graph.
             namespace: Optional Deep Agents-style namespace factory or static namespace.
             max_nodes: Maximum nodes listed or traversed in bounded views.
             max_edges: Maximum edges rendered in node pages.
@@ -96,11 +99,16 @@ class GraphMemoryBackend(BackendProtocol):
             Configured graph memory backend.
         """
         return cls(
-            KuzuGraphStore.memory(),
+            KuzuGraphStore.memory() if path is None else KuzuGraphStore.disk(path),
             namespace=namespace,
             max_nodes=max_nodes,
             max_edges=max_edges,
         )
+
+    def close(self) -> None:
+        """Close resources owned by a Kuzu store."""
+        if isinstance(self.store, KuzuGraphStore):
+            self.store.close()
 
     def ls(self, path: str) -> LsResult:
         """List graph memory virtual files."""

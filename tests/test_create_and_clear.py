@@ -1,5 +1,5 @@
 # - Checks that a fresh backend starts with a temporary Kuzu graph.
-# - Cases: the default store, and keeping disk-storage and reset options out of the public API.
+# - Cases: the default store, and keeping reset options out of the public API.
 
 from inspect import signature
 
@@ -11,13 +11,18 @@ def test_create_defaults_to_in_memory_kuzu_backend():
     backend = GraphMemoryBackend.create()
 
     assert isinstance(backend.store, KuzuGraphStore)
+    backend.add_graph_node("File", "temporary")
+    another = GraphMemoryBackend.create()
+    assert another.store.get_node("File", "temporary") is None
+    backend.close()
+    another.close()
 
 
-def test_disk_and_reset_apis_are_not_exposed():
+def test_reset_apis_are_not_exposed():
     parameters = signature(GraphMemoryBackend.create).parameters
 
     assert "per" + "sist" not in parameters
-    assert "path" not in parameters
+    assert "path" in parameters
     assert not hasattr(GraphMemoryBackend, "memory")
     assert not hasattr(GraphMemoryBackend, "ephemeral")
     assert not hasattr(GraphMemoryBackend, "local")

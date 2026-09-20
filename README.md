@@ -30,7 +30,7 @@ Neo4j's [context graph article](https://neo4j.com/blog/genai/from-recall-to-reas
 
 This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
-The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu. Its data remains available while the backend/store is retained in the process and disappears when the process exits; there is no automatic cleanup after each agent invocation or disk persistence.
+The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu by default. Its data remains available while the backend/store is open and disappears when it closes or the process exits; there is no automatic cleanup after each agent invocation. Supply a filesystem `path` for [persistent storage](#persistent-storage).
 
 ### Sharing one graph between agents
 
@@ -61,7 +61,7 @@ print(parent.ls("/graph/nodes/Trace/").entries)
 print(parent.read("/graph/search/parser.md").file_data["content"])
 ```
 
-Writes through one store are serialized and each trace or document batch commits atomically. Existing node and edge properties survive updates that omit them; the last successful writer wins when writers set the same property. Shared Artifact and Evidence values retain links to every trace, with per-trace IDs on the links. Distinct stores do not share data, and this in-memory store does not work across processes.
+Writes through one store are serialized and each trace or document batch commits atomically. Existing node and edge properties survive updates that omit them; the last successful writer wins when writers set the same property. Shared Artifact and Evidence values retain links to every trace, with per-trace IDs on the links. Distinct in-memory stores do not share data. For a persistent graph, create one backend with `path=...` and pass its `.store` to other backends in the same process. Close the shared store only after all agents finish using it.
 
 ## Quick Start
 
@@ -94,6 +94,104 @@ agent = create_deep_agent(
 ```
 
 Configure the selected model provider integration and credentials separately. The no-provider-key example below only exercises backend inspection.
+
+## Persistent Storage
+
+Persistence works through the Python library API in scripts, notebooks, agent
+runners, background workers, or web applications. It does not depend on a web
+framework or cloud provider. The application opens one store, passes it to its
+agents, and closes it after they finish.
+
+Pass a `str` or `pathlib.Path` to create or reopen a Kuzu database file. The parent
+directory must already exist; the package does not create directories or mount
+storage. Omitting `path`, or passing `None`, keeps the default in-memory behavior.
+
+This example writes a trace, closes the database, and reopens it without an LLM:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from deepagents_graph_memory import GraphMemoryBackend
+
+with TemporaryDirectory() as directory:  # Use a durable directory in your app.
+    path = Path(directory) / "project.kuzu"
+    graph = GraphMemoryBackend.create(path=path, namespace=("project", "demo"))
+    try:
+        trace_id = graph.record_graph_trace(
+            situation="parser test failed", rationale="empty field was dropped",
+            action="fixed the parser", outcome="test passed",
+        )
+    finally:
+        graph.close()
+
+    reopened = GraphMemoryBackend.create(path=path, namespace=("project", "demo"))
+    try:
+        print(reopened.read(f"/graph/nodes/Trace/{trace_id}.md").file_data["content"])
+    finally:
+        reopened.close()
+```
+
+Successful writes commit during execution. `close()` releases the connection and
+database lock; it does not delete a disk database. Calling it again is safe.
+Backends sharing one store share its lifetime, so closing any of them closes that
+store for all of them. Keep the database open across requests and close it during
+application shutdown. Do not close it inside an active transaction.
+
+Invalid paths and open failures raise errors instead of falling back to memory.
+The path names a database file, not a directory or a URL such as `s3://...`.
+Keep its containing directory on durable storage, including Kuzu's associated
+files. Reuse the same namespace when resuming the same project.
+
+### FastAPI and containers
+
+FastAPI is one lifecycle example; other applications use the same `create(path=...)`
+and `close()` calls in their own startup and shutdown code.
+
+Configure your deployment to mount durable storage at `/data`, then open the
+database once in FastAPI's lifespan. FastAPI is an application dependency; this
+package does not install it.
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from deepagents_graph_memory import GraphMemoryBackend
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    graph = GraphMemoryBackend.create(
+        path="/data/project.kuzu", namespace=("project", "demo"),
+    )
+    app.state.graph = graph
+    try:
+        yield
+    finally:
+        graph.close()
+
+
+app = FastAPI(lifespan=lifespan)
+# Use app.state.graph when constructing agents in your request handlers.
+```
+
+Use one worker process per writable database, for example
+`uvicorn app:app --workers 1`. Parent and subagents in that process reuse the
+store. A replacement container must open the same mounted database after the old
+process releases it; rolling deployments must not overlap database owners. A
+single replica setting alone does not prevent overlap during replacement.
+
+The developer configures the volume, permissions, and retention across container
+replacement. An ordinary container filesystem is not durable. The package accepts
+a filesystem path and has no cloud SDKs, blob uploads, or automatic LangSmith
+storage integration. It cannot detect whether your mount survives redeployment.
+
+[Azure Container Apps storage mounts](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts)
+and [AWS ECS EFS volumes](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html)
+describe provider setup. These links are not a claim of tested Kuzu compatibility:
+network filesystems must support Kuzu's locking and file operations, and need
+deployment-specific recovery tests. Local filesystem persistence is covered by
+this package's tests; Azure Files and EFS have not been integration-tested here.
 
 ## How It Works
 
@@ -367,7 +465,7 @@ graph TB
     end
 
     subgraph Store ["Storage"]
-        Kuzu["Kuzu In-Memory Graph<br/><i>kuzu_store.py</i>"]
+        Kuzu["Kuzu Graph: Memory or Disk<br/><i>kuzu_store.py</i>"]
     end
 
     Agent -->|"record_graph_trace<br/>recall_graph_memory"| Tools
@@ -482,7 +580,7 @@ python3 -m ruff check .                       # Lint
 
 ## Design
 
-`GraphMemoryBackend.create()` creates a Kuzu in-memory graph via `kuzu.Database(":memory:")`. Data lives in the Python process's RAM -- works on a laptop, VM, or container, but is lost on restart and not shared across workers.
+`GraphMemoryBackend.create()` creates a Kuzu in-memory graph via `kuzu.Database(":memory:")`. Supply `path=...` to create or reopen a disk database. Persistence depends on retaining that filesystem across restarts; each writable database has one owning process. Both modes use the same graph tools and namespace rules.
 
 Recall uses full-text search to find seed nodes, relationship-label search for relationship-oriented questions, and bounded graph traversal to recover connected context. Vector search and graph algorithms are intentionally not part of the default recall path.
 
