@@ -80,7 +80,7 @@ skip = "*-musllinux* *-win32"
 test-requires = ["pytest>=8", "pytest-asyncio>=1"]
 test-command = [
     "python {project}/scripts/check_wheel.py",
-    "python -m pytest -q {project}/tests",
+    'cd "{project}" && python -m pytest -q tests',
 ]
 
 [tool.cibuildwheel.linux]
@@ -95,4 +95,4 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "15.0" }
 
 [tool.cibuildwheel.windows]
 before-build = "pip install delvewheel"
-repair-wheel-command = 'delvewheel repair --add-path "%GRAPH_MEMORY_BUILD_OPENSSL%" -w {dest_dir} {wheel}'
+repair-wheel-command = 'delvewheel repair --ignore-existing --analyze-existing --with-mangle --add-path "%GRAPH_MEMORY_BUILD_OPENSSL%" -w {dest_dir} {wheel}'
