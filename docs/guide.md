@@ -1,4 +1,4 @@
-# Usage guide
+# Complete guide
 
 [Back to the README](../README.md)
 
@@ -10,7 +10,9 @@
 - [Findings, evidence, supersession, and retries](#graph-traces)
 - [Tools](#graph-tools) and [debugging](#inspecting-the-graph)
 - [Graph-only mode](#optional-graph-only-mode)
-- [Architecture](#architecture) and [development](#development)
+- [Architecture](#architecture) and [design rationale](#design-rationale)
+- [Development](#development) and [evaluations](#workflow-evaluation)
+- [Publishing](#publishing-a-release) and [LangChain listing](#langchain-backend-listing)
 
 ## Installation
 
@@ -729,14 +731,185 @@ Release wheels copy the upstream runtime and extension during the build, then
 use auditwheel (Linux), delocate (macOS), or delvewheel (Windows) to bundle and
 relink native dependencies. Run the wheel CI to validate those artifacts; a local
 `python -m build` alone doesn't perform the repair. The manual publishing workflow
-uploads the exact wheel artifacts from a successful Tests run at the same commit.
+builds the release wheels and runs one focused Linux install/subagent check before
+uploading them. It does not require the full platform test matrix. See
+[publishing a release](#publishing-a-release).
 
-## Design
+## Design rationale
 
-`GraphMemoryBackend.create()` creates a LadybugDB in-memory graph via `ladybug.Database(":memory:")`. Supply `path=...` to create or reopen a disk database. Persistence depends on retaining that filesystem across restarts; each writable database has one owning process. Both modes use the same graph tools and namespace rules.
+The strongest fit is a coding agent that investigates failures, tries fixes, and
+hands work to other agents. The same relationship model can support research
+experiments or incident investigations when the application records useful evidence.
+For a short task or a few notes, the ordinary filesystem may be enough.
 
-Recall uses full-text search to find seed nodes, relationship-label search for relationship-oriented questions, and bounded graph traversal to recover connected context. Vector search and graph algorithms are intentionally not part of the default recall path.
+Neo4j's [From recall to reasoning](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/)
+by Niels de Jong inspired the Situation/Rationale/Action/Outcome pattern. This
+package stores those supplied claims and connections; it does not implement an
+automatic learning or causal inference system.
 
-Raw Cypher is not exposed as an agent-facing read or write path. Generated graph views are read-only projections.
+### What belongs where
 
-For the full design rationale, see [DESIGN.md](https://github.com/TahaK29/deepagents-graph-memory/blob/main/DESIGN.md).
+| Context | Use |
+| --- | --- |
+| Code, raw logs, large tool results, working notes | Deep Agents filesystem |
+| Preferences, standing instructions, ordinary personal memory | Existing memory backend |
+| What happened, why an action was chosen, what changed, and supporting evidence | Graph traces and their relationships |
+| What the agent should do next | Native Deep Agents todo list |
+
+The graph keeps relationships explicit: a hypothesis led to an experiment, a
+file change addressed a test failure, or a decision relied on a particular result.
+Recall follows those links under limits instead of asking the model to reconstruct
+every connection from text. No live comparison has established better task success
+or lower token use for this package. Poor or stale input can still mislead an agent.
+
+### Implementation boundaries
+
+LadybugDB is the graph's source of truth; `/graph/...` files are generated,
+read-only views. The supported store uses the same database engine in memory or
+on disk. There is no fallback Python store, raw agent-facing Cypher tool, vector
+search service, or cloud synchronization layer.
+
+Writes validate labels, IDs, relationships, namespaces, JSON properties, and
+provenance through the existing backend. A store serializes access to its
+connection and rolls back failed transactions. Each writable disk graph has one
+owning process. Namespaces filter project data; they do not enforce access rights,
+and the schema is database-wide.
+
+Read-time review status comes from explicit links such as `SUPERSEDES`, `RESOLVES`,
+and `BASED_ON`. Evidence and previous claims remain available as history. The
+library neither decides which explanation is true nor prevents external actions.
+See [graph traces](#graph-traces) for the validation rules and bounded-recall behavior.
+
+Use the existing todo and rubric features alongside the graph. Applications can
+check whether decisions cite evidence, whether failed attempts have outcomes, or
+whether an agent repeated a failed experiment. These are possible rubric checks,
+not automatic graders built into the runtime.
+
+Keep this package focused on project and workflow context. It is not a general
+graph database UI, a replacement for `/memories/`, or a broad memory framework.
+
+## Workflow evaluation
+
+For source installs, complete the [development setup](#development)
+first. Published wheels include the search extension. Run the twelve deterministic
+integration cases without a model or provider credentials:
+
+```bash
+.venv/bin/python evals/run_workflows.py
+.venv/bin/python evals/run_workflows.py --offline
+.venv/bin/python -m pytest tests/test_workflow_evals.py
+```
+
+Each case in `evals/scenarios.json` supplies one event list to both the public graph trace API and ordinary notes. Notes retain the same facts, source references, links, observation times, and saved arrival times. An exact operation retry yields one entry in both. Offline checks assert returned facts, warnings, and actual graph node counts. They report returned characters, latency, and truncation. Passing them establishes mechanical behavior only; it does not measure agent task success.
+
+An optional live comparison uses the installed LangChain `create_agent` API, one explicit provider and model, and at most the selected cases and tool steps:
+
+```bash
+.venv/bin/python evals/run_workflows.py --model PROVIDER:MODEL --max-cases 3 --max-steps 8 --report /tmp/graph-workflows.json
+```
+
+Configure provider integration and credentials yourself. The runner neither installs a provider nor calls one in offline mode. Both live arms use the same model, question, allowed decision choices, instructions, fixed 8,000-character memory response cap, tool step cap, evidence checker, and action simulator. One memory tool calls graph recall; the other searches the shared event notes by subject, query, and observation time. The simulator performs no shell or network action. Grading expectations and flags are withheld from both agents; the decision choices are shared, and factual source references remain available to both.
+
+The CLI accepts 1–12 cases and 1–20 tool steps per arm. No-argument execution is offline.
+
+The live report keeps both arms, including errors and completed tool traces. It grades the structured final `decision`, `status`, and `source_ids` against fixture expectations, exact source IDs visible in tool results, missed contenders, required disputed-source reference lookups, and simulated unsafe actions. `check_evidence` returns the fixture's captured reference metadata; it does not fetch a log or run a new check. The cap limits successful tool executions; denied attempts can still appear in `tool_calls` before agent recursion stops. Tool calls, returned characters, latency, and provider usage metadata are reported. Missing usage stays `null`; character counts are not billed tokens. These exact-match grades are deliberately narrow: a cautious free-form explanation can be valuable but fail the structured grade. Run repeated trials with a saved report and publish mixed or negative results before making any graph-superiority claim. No live trial was run as part of the default tests.
+
+## Publishing a release
+
+The manually triggered `.github/workflows/publish.yml` workflow publishes from
+`main`. It builds all 20 platform wheels without running tests on every combination,
+checks that all packages are present, and tests one installed Linux/Python 3.11 wheel
+for offline operation and tool/subagent behavior. It then validates the distributions
+and uploads them using PyPI Trusted Publishing. This does not verify every platform
+for that release. Releases do not include a source archive.
+Only the upload job has permission to request a publishing identity.
+
+Configure the PyPI publisher with project `deepagents-graph-memory`, owner
+`TahaK29`, repository `deepagents-graph-memory`, workflow `publish.yml`, and
+environment `pypi`. For the first release, add this as a pending publisher on the
+maintainer's PyPI account. No long-lived API token is needed.
+
+After updating the package version, start the workflow:
+
+```bash
+gh workflow run publish.yml --ref main
+```
+
+Confirm the uploaded version and a clean public-index installation before
+announcing the release or submitting the LangChain listing.
+
+## LangChain backend listing
+
+Checked against the live LangChain documentation on 2026-09-20 UTC.
+
+This package fits the backend page's stated scope: a custom virtual filesystem
+that connects Deep Agents to a database. The proposed entry describes the
+`GraphMemoryBackend` filesystem integration and its read-only Markdown views.
+Graph mutations remain controlled Python methods and tools.
+
+Before submitting, verify the release on
+[PyPI](https://pypi.org/project/deepagents-graph-memory/) and install it in a fresh
+environment. The initial audit found publication was the remaining release gate.
+Maintainers decide acceptance; passing these checks cannot guarantee a merge.
+
+### Requirements and evidence
+
+| Check | Evidence or remaining work |
+| --- | --- |
+| Independent package and public source | `pyproject.toml`, MIT `LICENSE`, and the public `TahaK29/deepagents-graph-memory` repository. No implementation code belongs in the LangChain docs PR. |
+| Backend protocol | Subclasses `BackendProtocol`; implements `ls`, `read`, `grep`, `glob`, `write`, `edit`, upload, and download. Writes, edits, and uploads return read-only errors. Async calls use the inherited protocol wrappers. |
+| File semantics | Regression coverage checks directory paths, literal matching lines, capped search, validated relative glob patterns, newline-preserving reads and pagination, errors, and native synchronous/asynchronous `CompositeBackend` routing. |
+| Bounded inspection | Directory limits return structured errors. Known node paths remain readable. Node views and graph recall retain their existing traversal budgets. |
+| Runtime setup | Published wheels bundle LadybugDB 0.20.3, OpenSSL 3, and FTS. The guide covers supported platforms, persistent storage, and a writable default backend alongside `/graph/`. |
+| Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release (currently 0.7.15). Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
+| Published, installable package | Verify the release's platform wheels on PyPI, then confirm installation from the public index in a fresh environment. |
+| Release verification | The manual publisher checks one installed Linux/Python 3.11 wheel and the tool/subagent tests. The separate Tests workflow covers the full platform and older-version matrix; publishing does not require that matrix. |
+
+The required filesystem methods come from the
+[custom backend guide](https://docs.langchain.com/oss/python/deepagents/backends#custom-backends).
+The [integration contribution guide](https://docs.langchain.com/oss/python/contributing/integrations-langchain)
+requires independently published packages. Its standard-test requirement says
+"if applicable"; the backend contract is covered directly here rather than by a
+chat-model or vector-store test suite.
+
+### Submission route
+
+The [backend index](https://docs.langchain.com/oss/python/integrations/backends)
+explicitly invites a PR adding a table row. The target source file is
+[`src/oss/integrations/backends/index.mdx`](https://github.com/langchain-ai/docs/blob/main/src/oss/integrations/backends/index.mdx).
+Keep this change to one row linking to the package README.
+
+There is conflicting general guidance: the
+[publishing guide](https://docs.langchain.com/oss/python/contributing/publish-langchain#make-your-integration-discoverable)
+asks for an Integration listing issue and says not to open a manual listing PR
+unless a maintainer requests it. Its current
+[issue form](https://github.com/langchain-ai/docs/blob/main/.github/ISSUE_TEMPLATE/06-integration-submission.yml)
+has no `backends` component. After publication, confirm the backend-specific route
+with a maintainer if that discrepancy remains. Do not select `graphs` or `sandboxes`
+just to fit the form: this entry is a filesystem backend.
+
+The 50,000-monthly-download threshold governs a new hosted integration guide,
+not a claim of eligibility for this existing backend table. This submission
+requests no new guide, navigation entry, or featured status.
+
+### Proposed table row
+
+```markdown
+| [Graph Memory Backend](https://github.com/TahaK29/deepagents-graph-memory#quick-start) | Read-only filesystem backend that exposes LadybugDB project context as Markdown, with controlled graph tools for updates. | `deepagents-graph-memory` | [`TahaK29/deepagents-graph-memory`](https://github.com/TahaK29/deepagents-graph-memory) |
+```
+
+Suggested title: `docs: list Graph Memory Backend for Deep Agents`
+
+Use the upstream PR template when the submission route is confirmed. The overview
+can read:
+
+> Add Graph Memory Backend to the existing backend table. The independently
+> maintained package exposes project entities and workflow traces as read-only
+> Markdown through Deep Agents' filesystem tools. Graph updates use controlled
+> tools, and the README covers installation and links to this guide
+> for supported versions and CompositeBackend setup.
+
+State that Codex assisted with the audit and draft, as required by the docs
+repository's contribution instructions. Attach links to the published package
+and the final green CI run. Do not check the template's `docs dev` box until that
+preview has actually run.

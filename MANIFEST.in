@@ -1,5 +1,5 @@
-include evals/README.md evals/run_workflows.py evals/scenarios.json
-include docs/guide.md DESIGN.md
+include evals/run_workflows.py evals/scenarios.json
+include docs/guide.md
 include setup.py
 recursive-include scripts *.py *.sh
 recursive-include licenses *
