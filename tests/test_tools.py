@@ -4,6 +4,7 @@
 import asyncio
 
 import pytest
+from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import MessagesState
@@ -101,3 +102,46 @@ def test_compiled_toolnode_reuses_tool_call_identity_sync_and_async():
         call = AIMessage(content="", tool_calls=[{"name": "record_graph_trace", "args": explicit, "id": call_id}])
         compiled.invoke({"messages": [call]}, config=config)
     assert len(backend.store.list_node_ids("Trace").items) == 4
+
+    # Separate executions without a thread must not collapse into one trace.
+    first = compiled.invoke(state)["messages"][-1].content
+    second = asyncio.run(compiled.ainvoke(state))["messages"][-1].content
+    assert first != second
+    assert len(backend.store.list_node_ids("Trace").items) == 6
+
+
+def test_worker_retries_and_nested_workers_keep_runtime_identity():
+    backend = GraphMemoryBackend.create()
+    trace_tool = next(item for item in graph_memory_tools(backend) if item.name == "record_graph_trace")
+    payload = {"situation": "probe", "rationale": "output", "action": "checked", "outcome": "failed"}
+
+    def record(namespace, *, thread="thread-a", call="call-1", **overrides):
+        runtime = ToolRuntime(
+            state={},
+            context=None,
+            config={"configurable": {"thread_id": thread, "checkpoint_ns": namespace}},
+            stream_writer=lambda _: None,
+            tool_call_id=call,
+            store=None,
+        )
+        return trace_tool.func(**payload, **overrides, runtime=runtime)
+
+    try:
+        first = record("tools:worker|tools:write-1")
+        assert record("tools:worker|tools:write-1") == first
+        assert record("tools:worker|tools:write-2", call="call-2") != first
+        assert record("tools:worker|tools:child|tools:write-1") != first
+        assert record("tools:worker|tools:write-1", thread="thread-b") != first
+        traces = [backend.store.get_node("Trace", item) for item in backend.store.list_node_ids("Trace").items]
+        assert len(traces) == 4
+        assert len({trace.properties["subagent_id"] for trace in traces}) == 3
+        # Explicit names remain supported, but cannot merge workers' automatic retry keys.
+        first_named = record("tools:left|tools:write", subagent_id="named-worker", agent_id="parent", run_id="run-1")
+        second_named = record("tools:right|tools:write", subagent_id="named-worker", agent_id="parent", run_id="run-1")
+        assert first_named != second_named
+        node = backend.store.get_node("Trace", first_named.removeprefix("Recorded graph trace ").removesuffix("."))
+        assert node.properties["subagent_id"] == "named-worker"
+        assert node.properties["agent_id"] == "parent"
+        assert node.properties["run_id"] == "run-1"
+    finally:
+        backend.close()

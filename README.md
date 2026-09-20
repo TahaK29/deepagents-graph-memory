@@ -46,7 +46,7 @@ See [platform and development details](https://github.com/TahaK29/deepagents-gra
 
 ## Quick Start
 
-This gives one agent tools to save and look up findings while keeping its normal
+This gives your agent tools to save and look up findings while keeping its normal
 file tools. Set your model provider's API key first.
 
 ```python
@@ -67,13 +67,16 @@ agent = create_deep_agent(
     model=MODEL,
     tools=graph_tools,
     middleware=[graph_context_middleware()],
-    subagents=[],  # Start with one agent; shared subagent setup is in the guide.
 )
 ```
 
-Call `graph_backend.close()` when you're done. See the
+The agent can spawn workers as needed. Deep Agents' default workers inherit these
+graph tools: seven workers get seven automatic IDs, and all their findings stay in
+the same graph for the parent to read. You don't need to define or name each worker.
+
+Call `graph_backend.close()` after all workers finish. See the
 [full example](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#quick-start)
-to share the graph with subagents and let agents browse it through file tools.
+for custom subagents, shared graph guidance, and browsing the graph through file tools.
 
 ## Storage and limits
 

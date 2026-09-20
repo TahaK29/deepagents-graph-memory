@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import deepagents.graph
+import pytest
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -38,6 +39,74 @@ class ScriptedModel(BaseChatModel):
         else:
             message = AIMessage(content="finished")
         return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+class DelegatingModel(ScriptedModel):
+    """Spawn workers dynamically; deliberately reuse tool-call IDs in every worker."""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        who = next(message.text for message in messages if isinstance(message, HumanMessage))
+        replies = [message for message in messages if isinstance(message, ToolMessage)]
+        assert all(not message.text.startswith("Error:") for message in replies)
+        if who == "parent" and not replies:
+            calls = [
+                {"name": "task", "args": {"description": f"worker-{i}", "subagent_type": "general-purpose"}, "id": f"delegate-{i}"} for i in range(7)
+            ]
+        elif who == "parent" and len(replies) == 7:
+            anchors = [f"/graph/nodes/Trace/{reply.text.removeprefix('Recorded graph trace ').removesuffix('.')}.md" for reply in replies]
+            calls = [
+                {
+                    "name": "recall_graph_memory",
+                    "args": {"query": "worker findings", "anchors": anchors, "token_budget": 20000, "max_nodes": 200},
+                    "id": "recall",
+                }
+            ]
+        elif who != "parent" and len(replies) < 2:
+            calls = [
+                {
+                    "name": "record_graph_trace",
+                    "args": {"situation": who, "rationale": "test output", "action": "checked", "outcome": f"result-{len(replies)}"},
+                    "id": f"record-{len(replies)}",
+                }
+            ]
+        else:
+            if who == "parent":
+                assert all(f"worker-{i}" in replies[-1].text for i in range(7))
+            calls = []
+        content = replies[-1].text if not calls and who != "parent" else "finished"
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content if not calls else "", tool_calls=calls))])
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+@pytest.mark.parametrize("thread_id", [None, "shared-thread"])
+def test_dynamic_workers_get_distinct_stable_identities_in_shared_graph(async_mode, thread_id):
+    graph = GraphMemoryBackend.create(namespace="project")
+    try:
+        # No subagent specs or IDs: the default worker inherits the graph tools.
+        agent = create_deep_agent(model=DelegatingModel(steps=[]), tools=graph_memory_tools(graph))
+        config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
+        previous_workers = set()
+        for run in range(2):
+            state = {"messages": [HumanMessage(content="parent")]}
+            if async_mode:
+                asyncio.run(agent.ainvoke(state, config=config))
+            else:
+                agent.invoke(state, config=config)
+            traces = [
+                graph.store.get_node("Trace", item, scope_key="project") for item in graph.store.list_node_ids("Trace", scope_key="project").items
+            ]
+            assert len(traces) == 14 * (run + 1)
+            workers = {trace.properties["subagent_id"] for trace in traces}
+            assert len(workers - previous_workers) == 7
+            for worker_id in workers:
+                findings = [trace for trace in traces if trace.properties["subagent_id"] == worker_id]
+                assert len(findings) == 2
+                assert len({trace.properties["situation"] for trace in findings}) == 1
+                assert {trace.properties["outcome"] for trace in findings} == {"result-0", "result-1"}
+                assert graph.store.get_node("Subagent", worker_id, scope_key="project") is not None
+            previous_workers = workers
+    finally:
+        graph.close()
 
 
 def test_registered_graph_only_profile_works_with_real_agent(monkeypatch):

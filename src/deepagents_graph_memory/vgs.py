@@ -52,6 +52,8 @@ _COMMON_GRAPH_GUIDANCE = """## Reading Graph Context
 
 - Use `record_graph_trace` for durable workflow events, especially meaningful observations,
   decisions, actions, failures, outcomes, artifacts, and evidence.
+- Spawned workers sharing these tools write to the same project graph. Omit `subagent_id`
+  to use automatic worker attribution; pass useful findings and their trace IDs back to the parent.
 - Do not write every thought. Prefer facts that will help resume work, avoid repeated
   failed attempts, explain a decision, or connect evidence to an outcome.
 - Record failures and dead ends with their outcomes so future work can avoid repeating them.

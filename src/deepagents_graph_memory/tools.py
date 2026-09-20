@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -135,15 +136,33 @@ def graph_memory_tools(graph_backend: GraphMemoryBackend, *, include_low_level_w
         operation_id: str | None = None,
         runtime: ToolRuntime = None,  # This installed ToolNode injects ToolRuntime, but not ToolRuntime | None.
     ) -> str:
-        """Record a Situation/Rationale/Action/Outcome trace for long-running agent work."""
+        """Record a Situation/Rationale/Action/Outcome trace for long-running agent work.
+
+        Spawned workers automatically get a subagent_id; omit it unless assigning a custom name.
+        Parent and workers share the project graph. Keep full files and logs in the filesystem
+        and link relevant evidence here. Record useful findings, not every tool call.
+        """
         try:
             if bound_subject is not None:
                 if subject is not None and validate_subject(subject) != bound_subject:
                     raise GraphMemoryValidationError("subject differs from the bound subject.")
                 subject = bound_subject
-            if operation_id is None and runtime is not None and runtime.tool_call_id:
-                thread_id = runtime.config.get("configurable", {}).get("thread_id")
-                operation_id = json.dumps(["tool-call", thread_id, runtime.tool_call_id], separators=(",", ":"))
+            if runtime is not None:
+                configurable = runtime.config.get("configurable", {})
+                thread_id = configurable.get("thread_id")
+                checkpoint_ns = configurable.get("checkpoint_ns", "")
+                # LangGraph's final namespace segment identifies this tool node;
+                # the preceding path stays the same for every write by this worker.
+                worker_ns = checkpoint_ns.rpartition("|")[0]
+                if subagent_id is None and worker_ns:
+                    identity = json.dumps([thread_id, worker_ns], separators=(",", ":"))
+                    subagent_id = "subagent-" + hashlib.sha256(identity.encode()).hexdigest()
+                if operation_id is None and runtime.tool_call_id and (thread_id is not None or checkpoint_ns):
+                    # Without a thread, scope root calls to their execution instead
+                    # of deduplicating unrelated runs that reuse a tool-call ID.
+                    scope = worker_ns or (checkpoint_ns if thread_id is None else "")
+                    key = ["tool-call", thread_id, *([scope] if scope else []), runtime.tool_call_id]
+                    operation_id = json.dumps(key, separators=(",", ":"))
             trace_id = graph_backend.record_graph_trace(
                 situation=situation,
                 rationale=rationale,

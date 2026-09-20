@@ -76,7 +76,22 @@ The namespace option scopes graph data; it is not an authorization boundary, and
 
 ### Sharing one graph between agents
 
-Create one store and pass it to each backend. Use the same project namespace so both writers can inspect the same graph. Agent and subagent IDs are supplied by the caller; they are not inferred from the agent runtime.
+Give the parent `graph_memory_tools(graph_backend)`. Deep Agents' default
+general-purpose worker inherits those tools, so the parent can spawn seven workers
+without seven definitions. Each worker's `record_graph_trace` calls automatically
+attach a distinct `subagent_id`, stable across that worker's writes. Another spawn
+gets another ID, even if it has the same name or task description.
+
+All workers use the same project namespace so the parent can retrieve their findings.
+Worker IDs identify who wrote a trace; they don't create private graphs or access
+controls. Omit `subagent_id` for automatic attribution. An explicit value overrides
+it, so use distinct values if assigning names yourself. `agent_id`, `run_id`, and
+`task_id` remain optional caller-supplied metadata.
+
+For custom inline subagents, give each worker type the same graph tools; the IDs
+still come from each invocation. For separately constructed agents, share one store
+and project namespace as below. Direct Python calls have no injected agent runtime,
+so supply any identities you need yourself.
 
 ```python
 from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, make_graph_subject
@@ -113,9 +128,6 @@ Install the package:
 pip install deepagents-graph-memory
 ```
 
-Complete the one-time [full-text search setup](#full-text-search-setup) before
-running graph search or recall.
-
 ```python
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend
@@ -141,7 +153,8 @@ agent = create_deep_agent(
         routes={"/graph/": graph_backend},  # Read-only graph inspection.
     ),
     subagents=[{
-        # Configure the default worker explicitly so it also gets graph guidance.
+        # One reusable worker type; the parent decides how many to spawn.
+        # This override adds the full graph guidance to its prompt.
         "name": "general-purpose",
         "description": "Investigate a focused task and return findings with evidence.",
         "system_prompt": "Complete the assigned task and report findings with source paths.",
@@ -454,9 +467,14 @@ assert graph.record_graph_trace(operation_id="network-probe-7", **payload) == fi
 assert graph.record_graph_trace(operation_id="network-probe-8", **payload) != first
 ```
 
-The `record_graph_trace` tool uses its injected tool-call ID and runtime thread ID
-for retries when no explicit `operation_id` is supplied. Direct calls without
-either ID continue to append traces.
+When `operation_id` is omitted, `record_graph_trace` uses the injected tool-call ID,
+thread ID, and worker's LangGraph execution path for retries. Two workers can reuse
+a tool-call ID without merging their findings. Without a thread ID, root calls use
+their tool execution path to avoid merging separate invocations. A retry in the
+same runtime context returns the original trace; restarting a worker is a new
+invocation. Explicit `operation_id` values retain their namespace-wide meaning:
+use a unique value per logical write, including across workers. Direct calls
+without an operation ID continue to append traces.
 
 Writes are issued as LadybugDB Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
 
