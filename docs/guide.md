@@ -29,6 +29,15 @@ cache into the user's home directory.
 - macOS 15+ on Apple Silicon or Intel; Windows x64; Linux x64 or ARM64 with glibc 2.28+.
 - Deep Agents 0.6.10 or later. CI also checks 0.6.10, 0.6.12, and 0.7.1.
 
+**Intel Mac limitation:** the graph wheel is self-contained, but the latest Deep
+Agents dependency chain includes `cryptography`, which
+[stopped publishing Intel Mac wheels in version 49](https://cryptography.io/en/latest/changelog/#v49-0-0).
+Installing that dependency can require Rust, Xcode command-line tools, and OpenSSL
+for a source build; see its [installation guide](https://cryptography.io/en/latest/installation/).
+We do not cap it to an older release: version 50 includes a security fix missing
+from the last Intel wheel release. Apple Silicon, Windows x64, and the supported
+Linux targets have prebuilt wheels for the currently tested dependency versions.
+
 PyPI releases provide platform wheels, not a source archive that silently falls
 back to a native build. Windows ARM64, Alpine/musl, PyPy, and free-threaded Python
 aren't in this wheel matrix. Unsupported platforms need a separately tested
@@ -718,4 +727,3 @@ Recall uses full-text search to find seed nodes, relationship-label search for r
 Raw Cypher is not exposed as an agent-facing read or write path. Generated graph views are read-only projections.
 
 For the full design rationale, see [DESIGN.md](https://github.com/TahaK29/deepagents-graph-memory/blob/main/DESIGN.md).
-

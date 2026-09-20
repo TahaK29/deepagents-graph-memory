@@ -40,7 +40,8 @@ pip install --upgrade deepagents-graph-memory
 ```
 
 The platform packages include LadybugDB, OpenSSL, and the search extension.
-No database server, separate OpenSSL install, or search setup command is needed.
+The graph needs no database server, separate OpenSSL install, or search setup command.
+On Intel Macs, a separate Deep Agents dependency currently requires a source build.
 See [platform and development details](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#requirements).
 
 ## Quick Start
