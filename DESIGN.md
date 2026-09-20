@@ -343,7 +343,9 @@ The recall flow should:
 ## LadybugDB Storage Dependency
 
 This package is intentionally LadybugDB-first. The graph backend uses a real LadybugDB
-database, in memory by default or on disk when a path is supplied.
+database, in memory by default or on disk when a path is supplied. The exact
+`ladybug==0.20.3` pin excludes the 0.20.4 Windows FTS ABI regression tracked in
+[upstream issue #971](https://github.com/LadybugDB/ladybug/issues/971).
 
 The main Deep Agents package should not pull LadybugDB. That matters if this code is
 merged upstream: normal Deep Agents users should not download graph database

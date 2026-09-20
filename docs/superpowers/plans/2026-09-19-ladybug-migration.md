@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing store boundary and Cypher implementation. Rename the engine module and classes, adapt only verified incompatibilities, and use one required runtime engine. Existing Kuzu files must not be silently corrupted or treated as empty databases.
 
-**Tech Stack:** Python 3.11–3.14, Ladybug 0.20.4, existing Deep Agents dependencies, pytest, Ruff, GitHub Actions.
+**Tech Stack:** Python 3.11–3.14, Ladybug 0.20.3, existing Deep Agents dependencies, pytest, Ruff, GitHub Actions.
 
 **Spec:** The approved conversation: migrate to LadybugDB with behavior parity, multiple Astra medium implementation threads, complete tests, and corrected code/documentation terminology.
 
@@ -15,7 +15,7 @@
 - Work on the existing main checkout. Do not create branches or worktrees.
 - Keep `GraphMemoryBackend.create(path=None, ...)`, tools, namespaces, provenance, retry identity, history, recall budgets, and VGS/VFS composition stable.
 - Preserve in-memory default and optional durable file path. Retain transaction rollback, shared-store synchronization, duplicate-open protection, and explicit close semantics.
-- Use `ladybug>=0.20.4,<0.21` and `requires-python=">=3.11,<3.15"`; no Kuzu runtime fallback or new database abstraction.
+- Use `ladybug==0.20.3` and `requires-python=">=3.11,<3.15"`; no Kuzu runtime fallback or new database abstraction. The exact pin avoids the confirmed Windows FTS ABI regression in 0.20.4.
 - Engine names become `ladybug_store.py`, `LadybugGraphStore`, `_LadybugGraph`, and `ladybug`. The package remains `deepagents-graph-memory`.
 - Verify full-text search with no network access at runtime. Do not weaken tests or silently fall back to another search method.
 - Run actual Windows/Linux/macOS CI before claiming those platforms passed.
@@ -27,7 +27,7 @@
 
 - [x] Rename the current adapter and all current source terminology to LadybugDB; replace the required engine dependency.
 - [x] Preserve all query, schema, transaction, lock, scope, search, and lifecycle behavior; change only engine incompatibilities reproduced by tests.
-- [x] Check FTS availability and execute real full-text search after insert/update/reopen. Ladybug 0.20.4 does not bundle FTS: provision the native extension during setup, then load it locally at runtime.
+- [x] Check FTS availability and execute real full-text search after insert/update/reopen. Ladybug does not bundle FTS: provision the native extension during setup, then load it locally at runtime.
 - [x] Coordinate reproducible failures with the test thread and report exact behavior differences.
 
 ## Task 2 — Tests and platform verification
@@ -62,10 +62,12 @@
 ## Verified compatibility and local results
 
 - Native result metadata uses uppercase keys. The adapter preserves node labels, relationship types, and JSON properties while excluding native metadata.
-- Ladybug 0.20.4's implicit prepared-statement cache crashed on repeated parameterized writes. A fresh public `ladybug.PreparedStatement` per parameterized query avoids that cache; a subprocess regression covers repeated writes and reads.
+- Ladybug 0.20.3 and 0.20.4's implicit prepared-statement cache crashed on repeated parameterized writes. A fresh public `ladybug.PreparedStatement` per parameterized query avoids that cache; a subprocess regression covers repeated writes and reads.
 - FTS requires explicit one-time provisioning for the target engine version, OS, architecture, and runtime user. The runtime only loads the installed extension. Linux CI additionally blocks native networking with a network namespace.
 - Direct opening of a Kuzu 0.11.3 file fails without changing its hash. Native read-only export and import into a fresh Ladybug file preserved all 32 nodes, 59 edges, properties, timestamps, provenance, and retry identity in the baseline fixture; recall output was identical. A dedicated CI test exercises this conversion with Kuzu installed only in that job.
 - macOS arm64 / Python 3.11: **186 tests passed**, Ruff and formatting checks passed, and the wheel and source distribution built successfully.
 - Fresh wheel installation with Ladybug only, Deep Agents 0.6.12, and LangChain Core 1.6.3: **185 passed, 1 skipped** (the separate legacy conversion test). Ruff passed.
 - All **12 offline workflow scenarios passed**. README shared-agent, persistence, and inspection examples executed successfully; Python documentation snippets parsed.
-- Windows/Linux/macOS matrix results remain pending until the workflow runs on GitHub.
+- The initial 0.20.4 [CI run](https://github.com/TahaK29/deepagents-graph-memory/actions/runs/35481662195) passed all eight Linux/macOS combinations and the legacy conversion job. All four Windows jobs failed loading Ladybug's native binding. Upstream also confirms a separate [Windows FTS ABI mismatch](https://github.com/LadybugDB/ladybug/issues/971) with 0.20.4; its published extension matches 0.20.3.
+- The 0.20.3 candidate passed **185 tests, 1 skipped** without Kuzu, plus a separate passing legacy conversion test. The 32-node/59-edge baseline comparison and byte-identical recall also passed on 0.20.3. The native statement-cache crash still reproduces without the adapter's workaround.
+- CI now tests the exact 0.20.3 pin and preloads standard CPython's SSL library before standalone extension setup. Results remain pending; no Windows success is claimed yet.

@@ -68,7 +68,7 @@ class _LadybugGraph:
 
     def query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Execute a Cypher query and return rows as dictionaries."""
-        # Ladybug 0.20.4's implicit statement cache can crash on repeated writes.
+        # Ladybug 0.20.3's implicit statement cache can crash on repeated writes.
         statement = ladybug.PreparedStatement(self.conn, query, params) if params else None
         try:
             result = self.conn.execute(statement if statement is not None else query, params or {})

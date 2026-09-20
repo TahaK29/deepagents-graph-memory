@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "deepagents>=0.5.2,<0.7",
-    "ladybug>=0.20.4,<0.21",
+    "ladybug==0.20.3",
     "langchain-core>=1.4.0,<2.0.0",
 ]
 

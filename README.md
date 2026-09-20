@@ -206,7 +206,7 @@ files. Reuse the same namespace when resuming the same project.
 
 ### Existing Kuzu databases
 
-LadybugDB 0.20.4 rejects Kuzu 0.11.3 database files. Changing `.kuzu` to `.lbdb`
+LadybugDB 0.20.3 rejects Kuzu 0.11.3 database files. Changing `.kuzu` to `.lbdb`
 does not convert the format. Stop the old database owner and back up its database
 and associated files before migration; keep that backup until verification ends.
 
@@ -226,6 +226,7 @@ import into a new, empty database. Use the native default memory configuration
 for this import; a 64 MiB buffer failed in the migration probe.
 
 ```python
+import ssl  # Preload CPython OpenSSL libraries for the Windows native binding.
 from pathlib import Path
 
 import ladybug
@@ -674,12 +675,14 @@ pip install deepagents-graph-memory[test]      # + pytest, ruff
 
 ### Full-text search setup
 
-LadybugDB 0.20.4 requires a separately installed `fts` extension for graph search
+LadybugDB 0.20.3 requires a separately installed `fts` extension for graph search
 and recall. A fresh `pip install` does not provide it. Run this once during
 development setup or your image build with network access, following the
 [official extension installation](https://docs.ladybugdb.com/extensions/#install-an-extension):
 
 ```python
+import ssl  # Preload CPython OpenSSL libraries for the Windows native binding.
+
 import ladybug
 
 with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as database:
@@ -699,9 +702,12 @@ a missing extension raises a configuration error.
 
 - Python 3.11–3.14 (`>=3.11,<3.15`)
 - Deep Agents 0.5.2+
-- LadybugDB via `ladybug>=0.20.4,<0.21`
+- LadybugDB via `ladybug==0.20.3`
 
-The [Ladybug 0.20.4 wheels](https://pypi.org/project/ladybug/0.20.4/#files)
+The exact pin excludes the Windows FTS ABI regression in 0.20.4 reported in
+[upstream issue #971](https://github.com/LadybugDB/ladybug/issues/971).
+
+The [Ladybug 0.20.3 wheels](https://pypi.org/project/ladybug/0.20.3/#files)
 include macOS 15+ (Intel and Apple Silicon), Linux, and Windows builds for
 x86-64 and ARM64. Check the available wheel for your Python version, architecture,
 and OS; wheel availability does not establish that this package passed tests on
