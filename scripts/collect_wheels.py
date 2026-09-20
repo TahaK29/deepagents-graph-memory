@@ -1,4 +1,4 @@
-"""Require the complete tested release matrix before uploading any wheel."""
+"""Require the complete set of release wheels before uploading any wheel."""
 
 import itertools
 import re
@@ -34,4 +34,4 @@ if list(Path("dist").iterdir()):
     raise ValueError("Release output directory must be empty")
 for wheel in wheels:
     shutil.copy2(wheel, Path("dist") / wheel.name)
-print(f"Collected {len(wheels)} tested wheels for {version}")
+print(f"Collected {len(wheels)} wheels for {version}")

@@ -9,25 +9,33 @@ permissions:
 concurrency: pypi-publish
 
 jobs:
+  wheels:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/wheels.yml
+    with:
+      run-tests: false
+
   collect:
+    needs: wheels
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Download tested wheels for this exact revision
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-wheels-*
+          path: artifacts
+      - run: python scripts/collect_wheels.py
+      - name: Check one installed wheel and subagent behavior
         run: |
-          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --commit "$GITHUB_SHA" --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId')
-          [[ "$run_id" =~ ^[0-9]+$ ]]
-          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --pattern 'native-wheels-*' --dir artifacts
-          python scripts/collect_wheels.py
+          python -m pip install dist/*cp311*manylinux*x86_64.whl pytest pytest-asyncio
+          python scripts/check_wheel.py
+          python -m pytest -q tests/test_tools.py tests/test_combined_context.py
       - name: Validate distributions
         run: |
           python -m pip install twine

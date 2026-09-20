@@ -2,6 +2,10 @@ name: Build and test native wheels
 
 on:
   workflow_call:
+    inputs:
+      run-tests:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -43,6 +47,7 @@ jobs:
         uses: pypa/cibuildwheel@v3.2.0
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_TEST_SKIP: ${{ inputs.run-tests == false && '*' || '' }}
       - uses: actions/upload-artifact@v4
         with:
           name: native-wheels-${{ matrix.os }}

@@ -23,7 +23,7 @@ Maintainers decide acceptance; passing these checks cannot guarantee a merge.
 | Runtime setup | Published wheels bundle LadybugDB 0.20.3, OpenSSL 3, and FTS. The guide covers supported platforms, persistent storage, and a writable default backend alongside `/graph/`. |
 | Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release (currently 0.7.15). Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
 | Published, installable package | Verify the release's platform wheels on PyPI, then confirm installation from the public index in a fresh environment. |
-| CI for the release revision | The latest-release matrix covers Python 3.11–3.14 on Linux, Windows, and macOS, plus three older-version jobs on Linux. Require a green run containing the final audit changes before release; earlier green runs do not validate these changes. |
+| Release verification | The manual publisher checks one installed Linux/Python 3.11 wheel and the tool/subagent tests. The separate Tests workflow covers the full platform and older-version matrix; publishing does not require that matrix. |
 
 The required filesystem methods come from the
 [custom backend guide](https://docs.langchain.com/oss/python/deepagents/backends#custom-backends).
@@ -84,16 +84,18 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-CI builds and repairs platform wheels, then tests each installed wheel, including
-graph search and reopening a persistent database. Publish those tested artifacts
-under the maintainers' PyPI account.
+The Tests workflow builds and repairs platform wheels, then tests each installed
+wheel, including graph search and reopening a persistent database. The manual
+publisher uses the smaller release check described below.
 
 ## Publishing a release
 
 The manually triggered `.github/workflows/publish.yml` workflow publishes from
-`main` after the Tests workflow succeeds for that exact commit. It collects the
-20 tested platform wheels from that run, checks the complete release matrix, and
-uploads them using PyPI Trusted Publishing. Releases do not include a source archive.
+`main`. It builds all 20 platform wheels without running tests on every combination,
+checks that all packages are present, and tests one installed Linux/Python 3.11 wheel
+for offline operation and tool/subagent behavior. It then validates the distributions
+and uploads them using PyPI Trusted Publishing. This does not verify every platform
+for that release. Releases do not include a source archive.
 Only the upload job has permission to request a publishing identity.
 
 Configure the PyPI publisher with project `deepagents-graph-memory`, owner
@@ -101,7 +103,7 @@ Configure the PyPI publisher with project `deepagents-graph-memory`, owner
 environment `pypi`. For the first release, add this as a pending publisher on the
 maintainer's PyPI account. No long-lived API token is needed.
 
-After updating the package version and waiting for its CI run, start the workflow:
+After updating the package version, start the workflow:
 
 ```bash
 gh workflow run publish.yml --ref main
