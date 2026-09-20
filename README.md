@@ -226,7 +226,6 @@ import into a new, empty database. Use the native default memory configuration
 for this import; a 64 MiB buffer failed in the migration probe.
 
 ```python
-import ssl  # Preload CPython OpenSSL libraries for the Windows native binding.
 from pathlib import Path
 
 import ladybug
@@ -681,8 +680,6 @@ development setup or your image build with network access, following the
 [official extension installation](https://docs.ladybugdb.com/extensions/#install-an-extension):
 
 ```python
-import ssl  # Preload CPython OpenSSL libraries for the Windows native binding.
-
 import ladybug
 
 with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as database:
@@ -703,6 +700,18 @@ a missing extension raises a configuration error.
 - Python 3.11–3.14 (`>=3.11,<3.15`)
 - Deep Agents 0.5.2+
 - LadybugDB via `ladybug==0.20.3`
+- An OpenSSL 3 runtime available to LadybugDB's native library; `pip` does not install it.
+
+Use your platform's maintained OpenSSL 3 runtime. On Windows, install the matching
+architecture from a maintained distribution such as
+[Shining Light Productions](https://slproweb.com/products/Win32OpenSSL.html).
+The native library needs `libssl-3-x64.dll` and `libcrypto-3-x64.dll` on x64;
+select the installer's option to copy DLLs to the Windows system directory.
+If your application keeps them elsewhere, register that directory with
+[`os.add_dll_directory`](https://docs.python.org/3/library/os.html#os.add_dll_directory)
+before importing Ladybug and keep the returned handle alive; each worker process
+needs the same setup. PATH alone and importing Python's `ssl` module do not satisfy
+this requirement. See [Ladybug's Windows dependency guidance](https://github.com/LadybugDB/ladybug/issues/775).
 
 The exact pin excludes the Windows FTS ABI regression in 0.20.4 reported in
 [upstream issue #971](https://github.com/LadybugDB/ladybug/issues/971).
