@@ -6,9 +6,9 @@
 
 **Give your agent a record of what it tried and what worked.**
 
-For developers building LangChain Deep Agents that debug code, run experiments,
-or investigate problems over many steps. Save attempts and results as connected
-findings so your agent can look up earlier work before choosing its next step.
+For developers building LangChain Deep Agents that handle long-running tasks
+and need to remember a lot of context. The graph connects attempts, evidence,
+and results so agents can find earlier work before deciding what to do next.
 
 **Works alongside the virtual filesystem (VFS):** files hold code, logs, and tool
 dumps; the graph links findings to their evidence.
@@ -57,17 +57,14 @@ agent = create_deep_agent(
 # graph.close()
 ```
 
-The graph is temporary by default. Use `GraphMemoryBackend.create(path="project.lbdb")`
-to keep it on disk. Agents choose what to record and must still check evidence;
-the graph doesn't automatically verify claims or resolve disagreements.
+## Storage options
 
-## Details
+`GraphMemoryBackend.create()` keeps the graph temporarily while the backend is
+open. Use `GraphMemoryBackend.create(path="project.lbdb")` to keep it on a
+persistent disk across runs.
 
-The [complete guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md)
-covers [persistent storage and deployment](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#persistent-storage),
-[shared agents](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#sharing-one-graph-between-agents),
-[graph-only mode](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#optional-graph-only-mode),
-and [inspecting the graph](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#inspecting-the-graph),
-plus API examples and development.
+The [full guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md)
+covers deployment, shared agents, graph-only mode, and debugging. Agents choose
+what to record; the graph doesn't automatically verify their claims.
 
 [Report an issue](https://github.com/TahaK29/deepagents-graph-memory/issues) · [MIT license](https://github.com/TahaK29/deepagents-graph-memory/blob/main/LICENSE)
