@@ -675,7 +675,8 @@ pip install deepagents-graph-memory[test]      # + pytest, ruff
 ### Full-text search setup
 
 LadybugDB 0.20.3 requires a separately installed `fts` extension for graph search
-and recall. A fresh `pip install` does not provide it. Run this once during
+and recall. A fresh `pip install` does not provide it. Satisfy the native runtime
+[requirements](#requirements) first, then run this once during
 development setup or your image build with network access, following the
 [official extension installation](https://docs.ladybugdb.com/extensions/#install-an-extension):
 

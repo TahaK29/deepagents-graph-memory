@@ -86,7 +86,8 @@ def test_disk_database_lock_releases_on_close(tmp_path):
     assert subprocess.run(command, capture_output=True, check=False, timeout=30).returncode == 0
 
 
-def test_same_process_reuses_store_instead_of_reopening_aliases(tmp_path):
+def test_same_process_reuses_store_instead_of_reopening_aliases(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path.parent)
     path = tmp_path / "graph.ladybug"
     owner = GraphMemoryBackend.create(path=path)
     hardlink = tmp_path / "hardlink.ladybug"
@@ -159,6 +160,7 @@ def test_disk_registry_does_not_keep_abandoned_store_alive(tmp_path):
 
 
 def test_relative_path_stays_open_after_working_directory_changes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path.parent)
     path = tmp_path / "graph.ladybug"
     backend = GraphMemoryBackend.create(path=os.path.relpath(path))
     backend.add_graph_node("File", "saved")
