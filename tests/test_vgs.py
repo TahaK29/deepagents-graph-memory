@@ -5,9 +5,9 @@
 import asyncio
 
 from deepagents.middleware.filesystem import FilesystemMiddleware
-from langchain.agents.middleware import ModelRequest, ModelResponse
+from langchain.agents.middleware import ModelRequest, ModelResponse, ToolCallRequest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 import deepagents_graph_memory.vgs as vgs
 from deepagents_graph_memory import VFS_TOOL_NAMES, graph_context_middleware, vgs_harness_profile
@@ -183,3 +183,31 @@ def test_combined_middleware_does_not_register_a_model_profile(monkeypatch):
 
     monkeypatch.setattr(vgs, "register_harness_profile", forbidden_registration)
     assert graph_context_middleware() is not None
+
+
+def test_task_guidance_preserves_request_and_is_not_duplicated_on_retry():
+    middleware = graph_context_middleware()
+    call = {"name": "task", "args": {"description": "Check parser", "subagent_type": "general-purpose"}, "id": "task-1", "type": "tool_call"}
+    request = ToolCallRequest(tool_call=call, tool=None, state={}, runtime=None)
+    received = []
+
+    def handler(updated):
+        received.append(updated)
+        return ToolMessage(content="done", tool_call_id=updated.tool_call["id"])
+
+    result = middleware.wrap_tool_call(request, handler)
+    assert result.tool_call_id == "task-1"
+    updated = received[-1]
+    assert updated.tool_call["args"]["description"] == "Check parser\n\n" + vgs.GRAPH_CONTEXT_SYSTEM_PROMPT_SUFFIX
+    assert call["args"] == {"description": "Check parser", "subagent_type": "general-purpose"}
+    assert updated.tool_call["args"]["subagent_type"] == "general-purpose"
+
+    async def async_handler(next_request):
+        return handler(next_request)
+
+    asyncio.run(middleware.awrap_tool_call(updated, async_handler))
+    assert received[-1] is updated
+    for name, args in (("record_graph_trace", {"description": "leave alone"}), ("task", {"description": 7}), ("task", {})):
+        other = request.override(tool_call={**call, "name": name, "args": args})
+        middleware.wrap_tool_call(other, handler)
+        assert received[-1] is other

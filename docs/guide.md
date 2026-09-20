@@ -76,8 +76,9 @@ The namespace option scopes graph data; it is not an authorization boundary, and
 
 ### Sharing one graph between agents
 
-Give the parent `graph_memory_tools(graph_backend)`. Deep Agents' default
-general-purpose worker inherits those tools, so the parent can spawn seven workers
+Give the parent `graph_memory_tools(graph_backend)` and `graph_context_middleware()`.
+Deep Agents' default general-purpose worker inherits the tools, while the middleware
+forwards the graph guidance with each delegated task. The parent can spawn seven workers
 without seven definitions. Each worker's `record_graph_trace` calls automatically
 attach a distinct `subagent_id`, stable across that worker's writes. Another spawn
 gets another ID, even if it has the same name or task description.
@@ -152,15 +153,6 @@ agent = create_deep_agent(
         default=StateBackend(),  # Working files and offloaded tool results.
         routes={"/graph/": graph_backend},  # Read-only graph inspection.
     ),
-    subagents=[{
-        # One reusable worker type; the parent decides how many to spawn.
-        # This override adds the full graph guidance to its prompt.
-        "name": "general-purpose",
-        "description": "Investigate a focused task and return findings with evidence.",
-        "system_prompt": "Complete the assigned task and report findings with source paths.",
-        "tools": graph_tools,
-        "middleware": [graph_context_middleware()],
-    }],
 )
 ```
 
@@ -173,12 +165,15 @@ Use the graph to connect meaningful findings, failed attempts, decisions, and
 outcomes to their evidence. A test log belongs in VFS; a trace can record what
 failed, what changed, and which test run supports the result.
 
-`graph_context_middleware()` adds this guidance to one agent without changing
-model-wide profiles or removing filesystem instructions. Pass graph tools
-explicitly. Add the middleware and graph tools to each subagent that needs them;
-parent middleware does not automatically propagate to every subagent. The quick
-start overrides the built-in general-purpose worker for this reason. Precompiled
-or remote agents need their own setup and access to the evidence they cite.
+`graph_context_middleware()` adds graph guidance to the parent's system prompt
+and appends the same instructions to each delegated `task` description before the
+worker starts. This works for sync and async execution, without a general-purpose
+worker override or long tool descriptions. The original task and call ID stay intact.
+
+Default workers inherit the graph tools. Custom worker types need those tools too;
+if they delegate further, give them this middleware to forward the guidance on
+their own task calls. Custom application middleware does not automatically propagate.
+Precompiled or remote agents need their own setup and access to the evidence they cite.
 
 The first lookup depends on the task: read a known file directly for a file edit,
 or recall earlier attempts and dependencies when resuming work. Verify current
@@ -196,11 +191,11 @@ Save captured evidence before recording a claim about it. File and graph writes
 are separate operations: if trace recording fails after an action succeeded,
 retry the recording with its operation ID rather than repeating the action.
 Missing, inaccessible, or changed evidence cannot verify the original finding.
-The middleware provides agent guidance; it does not fetch sources or enforce
+These instructions provide agent guidance; they do not fetch sources or enforce
 atomic writes across VFS and LadybugDB.
 
-You can keep your existing filesystem backend and add only the graph tools and
-middleware. Mounting `/graph/` through the native `CompositeBackend` is optional;
+You can keep your existing filesystem backend and add the graph tools and middleware.
+Mounting `/graph/` through the native `CompositeBackend` is optional;
 it enables read-only file inspection of graph views. `write_file`, `edit_file`,
 and uploads cannot mutate those views. Keep the physical LadybugDB database outside
 the agent's writable file workspace. Ordinary preferences, instructions, and

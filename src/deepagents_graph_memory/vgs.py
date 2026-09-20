@@ -11,8 +11,9 @@ from typing import Any, cast
 
 from deepagents import HarnessProfile, register_harness_profile
 from deepagents.middleware import filesystem
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse, ToolCallRequest
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langgraph.types import Command
 
 VFS_TOOL_NAMES = frozenset({"ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep"})
 """Deep Agents default virtual-filesystem tool names."""
@@ -94,8 +95,8 @@ VGS_SYSTEM_PROMPT_SUFFIX = (
 GRAPH_CONTEXT_SYSTEM_PROMPT_SUFFIX = (
     _GRAPH_CONTEXT_INTRO
     + """
-The virtual filesystem holds raw artifacts, logs, large tool results, normal memory,
-skills, and preferences. Keep selective linked findings and decisions in the graph;
+When filesystem tools are available, use them for raw artifacts, logs, large tool
+results, normal memory, skills, and preferences. Keep selective linked findings and decisions in the graph;
 do not copy every file, read, or edit into it. Graph persistence does not preserve
 the source files cited by a trace.
 
@@ -140,9 +141,30 @@ class _VGSSystemPromptMiddleware(AgentMiddleware[Any, Any, Any]):
             request.override(system_message=_apply_vgs_system_text(request.system_message, self.system_prompt, self.strip_filesystem_guidance)),
         )
 
+    def _with_task_guidance(self, request: ToolCallRequest) -> ToolCallRequest:
+        call = request.tool_call
+        description = call["args"].get("description")
+        if call["name"] != "task" or not isinstance(description, str) or self.system_prompt in description:
+            return request
+        # Default workers inherit tools, not parent middleware. Carry the same
+        # instructions in the delegated task without changing the recorded call.
+        return request.override(tool_call={**call, "args": {**call["args"], "description": description + "\n\n" + self.system_prompt}})
+
+    def wrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]]
+    ) -> ToolMessage | Command[Any]:
+        """Forward graph guidance with each delegated task."""
+        return handler(self._with_task_guidance(request))
+
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+    ) -> ToolMessage | Command[Any]:
+        """Forward graph guidance with each async delegated task."""
+        return await handler(self._with_task_guidance(request))
+
 
 def graph_context_middleware() -> AgentMiddleware[Any, Any, Any]:
-    """Add agent-local guidance for using graph context with Deep Agents files."""
+    """Add graph guidance to this agent and forward it with delegated tasks."""
     return _VGSSystemPromptMiddleware(GRAPH_CONTEXT_SYSTEM_PROMPT_SUFFIX, strip_filesystem_guidance=False)
 
 

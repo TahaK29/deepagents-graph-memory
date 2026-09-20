@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 from pydantic import PrivateAttr
 
 from deepagents_graph_memory import VFS_TOOL_NAMES, GraphMemoryBackend, graph_context_middleware, graph_memory_tools, register_vgs_harness_profile
+from deepagents_graph_memory.vgs import GRAPH_CONTEXT_SYSTEM_PROMPT_SUFFIX
 
 
 class ScriptedModel(BaseChatModel):
@@ -44,8 +45,19 @@ class ScriptedModel(BaseChatModel):
 class DelegatingModel(ScriptedModel):
     """Spawn workers dynamically; deliberately reuse tool-call IDs in every worker."""
 
+    def bind_tools(self, tools, **kwargs):
+        descriptions = {item["function"]["name"]: item["function"]["description"] for item in tools if isinstance(item, dict) and "function" in item}
+        descriptions.update({item.name: item.description for item in tools if not isinstance(item, dict)})
+        # Check what the model actually receives, before it chooses a tool.
+        # This runs for the parent and each dynamically spawned worker.
+        assert len(descriptions["record_graph_trace"]) <= 1024
+        return super().bind_tools(tools, **kwargs)
+
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        who = next(message.text for message in messages if isinstance(message, HumanMessage))
+        task = next(message.text for message in messages if isinstance(message, HumanMessage))
+        who = task.split("\n\n", 1)[0]
+        if who != "parent":
+            assert GRAPH_CONTEXT_SYSTEM_PROMPT_SUFFIX in task
         replies = [message for message in messages if isinstance(message, ToolMessage)]
         assert all(not message.text.startswith("Error:") for message in replies)
         if who == "parent" and not replies:
@@ -83,7 +95,7 @@ def test_dynamic_workers_get_distinct_stable_identities_in_shared_graph(async_mo
     graph = GraphMemoryBackend.create(namespace="project")
     try:
         # No subagent specs or IDs: the default worker inherits the graph tools.
-        agent = create_deep_agent(model=DelegatingModel(steps=[]), tools=graph_memory_tools(graph))
+        agent = create_deep_agent(model=DelegatingModel(steps=[]), tools=graph_memory_tools(graph), middleware=[graph_context_middleware()])
         config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
         previous_workers = set()
         for run in range(2):

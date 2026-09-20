@@ -41,7 +41,7 @@ Combined VGS + VFS
   VFS tools on for files and tool dumps
   LadybugDB graph backend on
   graph tools passed explicitly by caller
-  agent-local guidance for selective graph use and evidence verification
+  graph middleware supplies guidance and forwards it with delegated tasks
   optional read-only /graph/ mount through native CompositeBackend
 
 Optional graph-only profile
@@ -84,9 +84,9 @@ summaries, notes, and other mostly linear text.
 
 Deep Agents expose file tools such as `ls`, `read_file`, `write_file`, `edit_file`,
 `grep`, and `glob`. Combined use leaves those tools and their guidance intact.
-`graph_context_middleware()` adds graph guidance to the agent where it is
-configured; callers supply graph tools explicitly. It does not register a global
-model profile or replace the application's backend.
+Callers supply graph tools explicitly. `graph_context_middleware()` adds guidance
+to the parent's system prompt and forwards it in delegated task descriptions.
+It does not register a global model profile or replace the application's backend.
 
 The graph is projected into paths such as:
 
@@ -234,13 +234,15 @@ Subagents are useful for context isolation. The graph can help merge their outpu
 Default preference:
 
 - Use one shared store for a parent run or workspace, with a project/workspace namespace.
-- Pass `agent_id`, `subagent_id`, and `run_id` explicitly on trace writes.
+- Let trace tools infer `subagent_id` for spawned workers. Pass optional `agent_id`
+  and `run_id` when the application has those identities.
 - Let the main agent recall across subagent outputs through graph traversal.
 
-Configure combined graph guidance and tools explicitly on each relevant subagent,
-including a general-purpose override when needed. Parent middleware does not
-automatically propagate to all workers. Workers need access to the evidence
-locations they cite; remote or precompiled agents require their own setup.
+Default workers inherit graph tools, and the parent's graph middleware appends the
+shared guidance to each delegated task. Custom subagent types need graph tools too;
+if they delegate further, configure graph middleware on them to forward guidance.
+Other parent middleware does not automatically propagate. Workers need access to
+the evidence locations they cite; remote or precompiled agents require their own setup.
 
 Separate physical graphs per subagent are simpler to isolate, but make cross-subagent
 recall harder. Prefer scoped subgraphs unless isolation is more important than shared

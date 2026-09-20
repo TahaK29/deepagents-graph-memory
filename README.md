@@ -70,13 +70,14 @@ agent = create_deep_agent(
 )
 ```
 
-The agent can spawn workers as needed. Deep Agents' default workers inherit these
-graph tools: seven workers get seven automatic IDs, and all their findings stay in
-the same graph for the parent to read. You don't need to define or name each worker.
+The agent can spawn workers as needed. Default workers inherit the graph tools,
+and the middleware passes the evidence and disagreement instructions with each task.
+Seven workers get seven automatic IDs, and all their findings stay in the same
+graph for the parent to read. You don't need to define or name each worker.
 
 Call `graph_backend.close()` after all workers finish. See the
 [full example](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#quick-start)
-for custom subagents, shared graph guidance, and browsing the graph through file tools.
+for custom subagents and browsing the graph through file tools.
 
 ## Storage and limits
 
