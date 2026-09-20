@@ -1,4 +1,4 @@
-"""Disk Kuzu lifecycle and reopening through the public backend factory."""
+"""Disk Ladybug lifecycle and reopening through the public backend factory."""
 
 import gc
 import os
@@ -11,13 +11,13 @@ from weakref import ref
 
 import pytest
 
-from deepagents_graph_memory import kuzu_store
+from deepagents_graph_memory import ladybug_store
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
 
 
 def test_disk_graph_reopens_with_trace_relationships_scope_and_retry(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     parent = GraphMemoryBackend.create(path=path, namespace="project")
     child = GraphMemoryBackend(parent.store, namespace="project")
     other = GraphMemoryBackend(parent.store, namespace="other")
@@ -44,7 +44,7 @@ def test_disk_graph_reopens_with_trace_relationships_scope_and_retry(tmp_path):
 
 
 def test_close_is_idempotent_and_shared_and_rejects_active_transaction(tmp_path):
-    backend = GraphMemoryBackend.create(path=tmp_path / "graph.kuzu")
+    backend = GraphMemoryBackend.create(path=tmp_path / "graph.ladybug")
     sibling = GraphMemoryBackend(backend.store)
     with backend.store.transaction():
         with pytest.raises(GraphMemoryConfigurationError, match="transaction"):
@@ -67,41 +67,56 @@ def test_invalid_persistent_path_is_rejected(value):
 
 def test_missing_mount_and_directory_database_path_fail_without_fallback(tmp_path):
     with pytest.raises(GraphMemoryConfigurationError, match="parent"):
-        GraphMemoryBackend.create(path=tmp_path / "missing" / "graph.kuzu")
+        GraphMemoryBackend.create(path=tmp_path / "missing" / "graph.ladybug")
     assert not (tmp_path / "missing").exists()
-    (tmp_path / "directory.kuzu").mkdir()
+    (tmp_path / "directory.ladybug").mkdir()
     with pytest.raises(GraphMemoryConfigurationError, match="directory"):
-        GraphMemoryBackend.create(path=tmp_path / "directory.kuzu")
+        GraphMemoryBackend.create(path=tmp_path / "directory.ladybug")
 
 
 def test_disk_database_lock_releases_on_close(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     backend = GraphMemoryBackend.create(path=path)
     script = "from deepagents_graph_memory.backend import GraphMemoryBackend; GraphMemoryBackend.create(path=__import__('sys').argv[1]).close()"
     command = [sys.executable, "-c", script, str(path)]
     blocked = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
     assert blocked.returncode != 0
-    assert "Could not open Kuzu graph" in blocked.stderr and "lock" in blocked.stderr.lower()
+    assert "Could not open LadybugDB graph" in blocked.stderr and "lock" in blocked.stderr.lower()
     backend.close()
     assert subprocess.run(command, capture_output=True, check=False, timeout=30).returncode == 0
 
 
 def test_same_process_reuses_store_instead_of_reopening_aliases(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     owner = GraphMemoryBackend.create(path=path)
-    symlink = tmp_path / "alias.kuzu"
-    symlink.symlink_to(path)
-    hardlink = tmp_path / "hardlink.kuzu"
+    hardlink = tmp_path / "hardlink.ladybug"
     os.link(path, hardlink)
-    for alias in (path, Path(os.path.relpath(path)), symlink, hardlink):
+    for alias in (path, Path(os.path.relpath(path)), hardlink):
         with pytest.raises(GraphMemoryConfigurationError, match="reuse.*store"):
             GraphMemoryBackend.create(path=alias)
     owner.close()
     GraphMemoryBackend.create(path=path).close()
 
 
+def test_same_process_rejects_symlink_alias(tmp_path):
+    path = tmp_path / "graph.ladybug"
+    symlink = tmp_path / "alias.ladybug"
+    try:
+        symlink.symlink_to(path)
+    except OSError as exc:
+        if sys.platform == "win32" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows account lacks symlink privilege")
+        raise
+    owner = GraphMemoryBackend.create(path=path)
+    try:
+        with pytest.raises(GraphMemoryConfigurationError, match="reuse.*store"):
+            GraphMemoryBackend.create(path=symlink)
+    finally:
+        owner.close()
+
+
 def test_concurrent_disk_factories_allow_one_owner(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     start = Barrier(2)
 
     def open_graph():
@@ -120,21 +135,21 @@ def test_concurrent_disk_factories_allow_one_owner(tmp_path):
 
 
 def test_failed_initialization_releases_database_for_retry(tmp_path, monkeypatch):
-    path = tmp_path / "graph.kuzu"
-    original = kuzu_store._KuzuGraph.refresh_schema
+    path = tmp_path / "graph.ladybug"
+    original = ladybug_store._LadybugGraph.refresh_schema
 
     def fail_once(graph):
-        monkeypatch.setattr(kuzu_store._KuzuGraph, "refresh_schema", original)
+        monkeypatch.setattr(ladybug_store._LadybugGraph, "refresh_schema", original)
         raise RuntimeError("schema unavailable")
 
-    monkeypatch.setattr(kuzu_store._KuzuGraph, "refresh_schema", fail_once)
+    monkeypatch.setattr(ladybug_store._LadybugGraph, "refresh_schema", fail_once)
     with pytest.raises(GraphMemoryConfigurationError, match="schema unavailable"):
         GraphMemoryBackend.create(path=path)
     GraphMemoryBackend.create(path=path).close()
 
 
 def test_disk_registry_does_not_keep_abandoned_store_alive(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     backend = GraphMemoryBackend.create(path=path)
     store_ref = ref(backend.store)
     del backend
@@ -144,7 +159,7 @@ def test_disk_registry_does_not_keep_abandoned_store_alive(tmp_path):
 
 
 def test_relative_path_stays_open_after_working_directory_changes(tmp_path, monkeypatch):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     backend = GraphMemoryBackend.create(path=os.path.relpath(path))
     backend.add_graph_node("File", "saved")
     monkeypatch.chdir(tmp_path)
@@ -163,7 +178,7 @@ def test_backend_does_not_close_an_external_adapter():
 
 
 def test_committed_write_survives_process_exit_without_close(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     script = (
         "from deepagents_graph_memory.backend import GraphMemoryBackend; "
         "import os, sys; b=GraphMemoryBackend.create(path=sys.argv[1]); "
@@ -176,7 +191,7 @@ def test_committed_write_survives_process_exit_without_close(tmp_path):
 
 
 def test_uncommitted_write_is_rolled_back_after_process_exit(tmp_path):
-    path = tmp_path / "graph.kuzu"
+    path = tmp_path / "graph.ladybug"
     backend = GraphMemoryBackend.create(path=path)
     backend.add_graph_node("File", "committed")
     backend.close()
@@ -194,3 +209,23 @@ with b.store.transaction():
     assert reopened.store.get_node("File", "committed") is not None
     assert reopened.store.get_node("File", "partial") is None
     reopened.close()
+
+
+def test_repeated_parameterized_writes_in_clean_process():
+    """Keep native prepared-statement regressions from crashing the pytest process."""
+    script = """from deepagents_graph_memory.backend import GraphMemoryBackend
+
+backend = GraphMemoryBackend.create(namespace="project")
+for revision in range(4):
+    for name in ("api", "worker"):
+        backend.add_graph_node("Service", name, properties={"revision": revision, "owner": name})
+        backend.add_graph_edge("Service", name, "DEPENDS_ON", "Database", "storage", properties={"revision": revision, "owner": name})
+        node = backend.store.get_node("Service", name, scope_key="project")
+        assert node.properties["revision"] == revision and node.properties["owner"] == name
+        edge = backend.store.get_neighbors("Service", name, scope_key="project").edges[0]
+        assert edge.properties["revision"] == revision and edge.properties["owner"] == name
+        assert edge.source_id == name and edge.target_id == "storage"
+backend.close()
+"""
+    result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", script], capture_output=True, text=True, check=False, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr

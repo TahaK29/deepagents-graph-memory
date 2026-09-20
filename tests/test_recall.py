@@ -3,7 +3,7 @@
 #        stopping at relevance or size limits, keeping scopes separate, and offering recall as a tool.
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -108,7 +108,7 @@ def test_recall_stops_at_token_budget():
 
 
 def test_recall_respects_scope():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
     alice.add_graph_node("service", "langfuse")

@@ -134,10 +134,10 @@ class EdgeResult:
 
 
 class GraphStoreAdapter(Protocol):
-    """Internal adapter boundary for the Kuzu graph store.
+    """Internal adapter boundary for the LadybugDB graph store.
 
     This is not a public graph database protocol. It keeps GraphMemoryBackend
-    testable while the real store uses Kuzu's documented LangChain integration.
+    testable while the real store uses LadybugDB's native Python connection.
     """
 
     def get_schema(self, *, scope_key: str | None = None) -> str:

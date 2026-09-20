@@ -39,7 +39,7 @@ Default Deep Agents
 
 Combined VGS + VFS
   VFS tools on for files and tool dumps
-  Kuzu graph backend on
+  LadybugDB graph backend on
   graph tools passed explicitly by caller
   agent-local guidance for selective graph use and evidence verification
   optional read-only /graph/ mount through native CompositeBackend
@@ -60,7 +60,7 @@ It provides:
 - A recall tool that retrieves a relevant graph slice under budgets.
 - Agent-local graph guidance that preserves filesystem tools and instructions.
 - An optional graph-only profile that hides the default filesystem tools.
-- A Kuzu-backed runtime path.
+- A LadybugDB-backed runtime path.
 
 The graph database is the source of truth for graph facts. The Markdown files under
 `/graph/` are generated views, not storage.
@@ -111,11 +111,11 @@ agent-local middleware cannot reverse previously registered tool exclusions.
 
 ## Storage Lifetime
 
-Kuzu is the supported graph store. `GraphMemoryBackend.create()` defaults to
-Kuzu's in-memory database mode:
+LadybugDB is the supported graph store. `GraphMemoryBackend.create()` defaults to
+LadybugDB's in-memory database mode:
 
 ```python
-kuzu.Database(":memory:")
+ladybug.Database(":memory:")
 ```
 
 The default graph is a RAM scratchpad held by the store until the application
@@ -128,6 +128,11 @@ reopened with the same project namespace. Open failures must not silently create
 an in-memory replacement. The application owns storage provisioning, permissions,
 and volume retention; no provider SDK, blob snapshot, or cloud deployment API is
 part of this feature.
+
+Kuzu 0.11.3 files require native export and import into a fresh LadybugDB file;
+renaming the file is not conversion. Keep the source backup and validate the
+new graph before switching application paths. See the
+[migration procedure](README.md#existing-kuzu-databases).
 
 One process owns each writable database. Parent and subagents share one store;
 closing it affects all backends using it. Shutdown closes the connection before
@@ -205,8 +210,8 @@ transactions commit independently; retry a failed trace recording using its
 operation identity without repeating a successful external action.
 
 The graph does not copy or persist referenced files. Applications choose VFS
-storage lifetime separately from Kuzu persistence. Long-lived findings may outlast
-thread-local dumps; readers must handle unavailable evidence. Keep physical Kuzu
+storage lifetime separately from LadybugDB persistence. Long-lived findings may outlast
+thread-local dumps; readers must handle unavailable evidence. Keep physical LadybugDB
 files outside the agent's writable workspace, and use existing VFS permissions
 for artifact access. Graph namespaces are not an authorization boundary.
 
@@ -244,7 +249,7 @@ Separate physical graphs per subagent are simpler to isolate, but make cross-sub
 recall harder. Prefer scoped subgraphs unless isolation is more important than shared
 reasoning.
 
-One store serializes reads and writes on its Kuzu connection. High-level traces,
+One store serializes reads and writes on its LadybugDB connection. High-level traces,
 individual node/edge writes, and document batches use transactions, so a failed
 write rolls back its partial graph changes. Upserts merge omitted properties and
 preserve creation time. When writers set the same property, the last successful
@@ -330,17 +335,17 @@ The recall flow should:
 
 1. Find seed nodes from query terms.
 2. Expand through relevant edges.
-3. Stop at node, edge, depth, and token budgets.
+3. Stop at node, edge, and depth limits, with an approximate token budget.
 4. Return compact Markdown with source `/graph/...` paths.
 5. Return source paths or artifact ids so another system or developer can inspect
    raw evidence when needed.
 
-## Kuzu Storage Dependency
+## LadybugDB Storage Dependency
 
-This package is intentionally Kuzu-first. The graph backend uses a real Kuzu
+This package is intentionally LadybugDB-first. The graph backend uses a real LadybugDB
 database, in memory by default or on disk when a path is supplied.
 
-The main Deep Agents package should not pull Kuzu. That matters if this code is
+The main Deep Agents package should not pull LadybugDB. That matters if this code is
 merged upstream: normal Deep Agents users should not download graph database
 dependencies unless they enable VGS. This package is the explicit VGS package, so
 installing it installs the VGS runtime dependencies.
@@ -352,14 +357,19 @@ pip install deepagents-graph-memory
 ```
 
 Do not maintain a separate Python in-memory graph store. Temporary graph memory
-should be backed by Kuzu's in-memory database mode:
+should be backed by LadybugDB's in-memory database mode:
 
 ```python
-kuzu.Database(":memory:")
+ladybug.Database(":memory:")
 ```
 
-If Kuzu or its LangChain integration is missing, fail with a clear configuration
-error when graph memory is imported. Do not silently fall back to a weaker store.
+Provision the native `fts` extension during development setup or image build;
+see [full-text search setup](README.md#full-text-search-setup). Runtime search loads
+the installed extension and must fail clearly if it is absent, without downloading
+it or substituting another search method.
+
+If LadybugDB or a required LangChain dependency is missing, fail with a clear
+configuration error when graph memory is imported. Do not silently fall back to a weaker store.
 
 ## Safety And Boundaries
 
@@ -419,5 +429,5 @@ This project is working if:
 - The graph helps answer relationship questions faster than plain files.
 - The graph improves resume and non-repetition behavior in long-running tasks.
 - The graph remains separate from user memory and `/memories/`.
-- Optional graph dependencies stay optional.
+- Graph dependencies remain confined to this explicit VGS package.
 - The implementation stays an integration layer, not a new protocol.

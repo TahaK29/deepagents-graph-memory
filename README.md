@@ -1,14 +1,14 @@
 # deepagents-graph-memory
 
-An experimental graph-backed workflow and trace store for LangChain Deep Agents. It records linked project context in Kuzu, supports keyword search and bounded traversal, and exposes read-only Markdown views for inspection.
+An experimental graph-backed workflow and trace store for LangChain Deep Agents. It records linked project context in LadybugDB, supports keyword search and bounded traversal, and exposes read-only Markdown views for inspection.
 
 The [workflow evaluation](evals/README.md) runs twelve offline integration scenarios and offers an opt-in, bounded graph-versus-notes model comparison. Offline passes verify retrieval mechanics, not improved model decisions.
 
 **Debugging a missing graph fact?** See [Inspecting the graph](#inspecting-the-graph) for a copyable Python example that needs no model or provider key.
 
 [![Status: Experimental](https://img.shields.io/badge/Status-Experimental-F59E0B)](https://github.com/TahaK29/deepagents-graph-memory)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![Kuzu](https://img.shields.io/badge/Kuzu-Graph_DB-FF6B35?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyTDIgN2wxMCA1IDEwLTUtMTAtNXpNMiAxN2wxMCA1IDEwLTVNMiAxMmwxMCA1IDEwLTUiLz48L3N2Zz4=)](https://kuzudb.com)
+[![Python 3.11–3.14](https://img.shields.io/badge/Python-3.11%E2%80%933.14-3776AB?logo=python&logoColor=white)](https://python.org)
+[![LadybugDB](https://img.shields.io/badge/LadybugDB-Graph_DB-FF6B35?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyTDIgN2wxMCA1IDEwLTUtMTAtNXpNMiAxN2wxMCA1IDEwLTVNMiAxMmwxMCA1IDEwLTUiLz48L3N2Zz4=)](https://ladybugdb.com)
 [![LangChain](https://img.shields.io/badge/LangChain-Framework-1C3C3C?logo=langchain&logoColor=white)](https://python.langchain.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -30,7 +30,7 @@ Neo4j's [context graph article](https://neo4j.com/blog/genai/from-recall-to-reas
 
 This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
-The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory Kuzu by default. Its data remains available while the backend/store is open and disappears when it closes or the process exits; there is no automatic cleanup after each agent invocation. Supply a filesystem `path` for [persistent storage](#persistent-storage).
+The namespace option scopes graph data; it is not an authorization boundary, and schema inspection remains database-wide. `GraphMemoryBackend.create()` uses in-memory LadybugDB by default. Its data remains available while the backend/store is open and disappears when it closes or the process exits; there is no automatic cleanup after each agent invocation. Supply a filesystem `path` for [persistent storage](#persistent-storage).
 
 ### Sharing one graph between agents
 
@@ -38,9 +38,9 @@ Create one store and pass it to each backend. Use the same project namespace so 
 
 ```python
 from deepagents_graph_memory import GraphMemoryBackend, graph_memory_tools, make_graph_subject
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 
-store = KuzuGraphStore.memory()
+store = LadybugGraphStore.memory()
 parent = GraphMemoryBackend(store, namespace=("project", "demo"))
 subagent = GraphMemoryBackend(store, namespace=("project", "demo"))
 subject = make_graph_subject("src/parser.py", "empty-field parsing", "linux")
@@ -69,6 +69,9 @@ Writes through one store are serialized and each trace or document batch commits
 pip install deepagents-graph-memory
 ```
 
+Complete the one-time [full-text search setup](#full-text-search-setup) before
+running graph search or recall.
+
 ```python
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend
@@ -80,7 +83,7 @@ from deepagents_graph_memory import (
 
 MODEL = "google_genai:gemini-3.5-flash"
 
-# In-memory Kuzu graph -- no disk, no config
+# In-memory LadybugDB graph; no database path required
 graph_backend = GraphMemoryBackend.create()
 graph_tools = graph_memory_tools(graph_backend)
 
@@ -128,7 +131,7 @@ outcomes rather than mirroring every read, file, or log line into the graph.
 Deep Agents' existing filesystem middleware can offload large tool responses
 under `/large_tool_results/`. Keep that location on a writable VFS backend so the
 agent can use `read_file` and `grep` to inspect the dump. This package does not
-change the offload threshold or copy the full dump into Kuzu. When recording a
+change the offload threshold or copy the full dump into LadybugDB. When recording a
 finding, use `evidence_refs` to cite the actual saved location and source identity,
 including the revision or observation time when known.
 
@@ -137,17 +140,17 @@ are separate operations: if trace recording fails after an action succeeded,
 retry the recording with its operation ID rather than repeating the action.
 Missing, inaccessible, or changed evidence cannot verify the original finding.
 The middleware provides agent guidance; it does not fetch sources or enforce
-atomic writes across VFS and Kuzu.
+atomic writes across VFS and LadybugDB.
 
 You can keep your existing filesystem backend and add only the graph tools and
 middleware. Mounting `/graph/` through the native `CompositeBackend` is optional;
 it enables read-only file inspection of graph views. `write_file`, `edit_file`,
-and uploads cannot mutate those views. Keep the physical Kuzu database outside
+and uploads cannot mutate those views. Keep the physical LadybugDB database outside
 the agent's writable file workspace. Ordinary preferences, instructions, and
 notes remain in VFS or `/memories/`.
 
 **Storage lifetimes are separate.** `StateBackend` uses thread state; retaining
-those files across process restarts requires a durable checkpointer. Saving Kuzu
+those files across process restarts requires a durable checkpointer. Saving LadybugDB
 with `path=...` does not persist VFS files. For evidence that must survive across
 threads or deployments, configure a suitable persistent file/store backend and
 give readers access to it. Do not assume a saved graph makes an old dump available.
@@ -159,9 +162,10 @@ runners, background workers, or web applications. It does not depend on a web
 framework or cloud provider. The application opens one store, passes it to its
 agents, and closes it after they finish.
 
-Pass a `str` or `pathlib.Path` to create or reopen a Kuzu database file. The parent
+Pass a `str` or `pathlib.Path` to create or reopen a LadybugDB database file. The parent
 directory must already exist; the package does not create directories or mount
-storage. Omitting `path`, or passing `None`, keeps the default in-memory behavior.
+storage. Examples use `.lbdb`; the path accepts any extension. Omitting `path`,
+or passing `None`, keeps the default in-memory behavior.
 
 This example writes a trace, closes the database, and reopens it without an LLM:
 
@@ -172,7 +176,7 @@ from tempfile import TemporaryDirectory
 from deepagents_graph_memory import GraphMemoryBackend
 
 with TemporaryDirectory() as directory:  # Use a durable directory in your app.
-    path = Path(directory) / "project.kuzu"
+    path = Path(directory) / "project.lbdb"
     graph = GraphMemoryBackend.create(path=path, namespace=("project", "demo"))
     try:
         trace_id = graph.record_graph_trace(
@@ -197,8 +201,50 @@ application shutdown. Do not close it inside an active transaction.
 
 Invalid paths and open failures raise errors instead of falling back to memory.
 The path names a database file, not a directory or a URL such as `s3://...`.
-Keep its containing directory on durable storage, including Kuzu's associated
+Keep its containing directory on durable storage, including LadybugDB's associated
 files. Reuse the same namespace when resuming the same project.
+
+### Existing Kuzu databases
+
+LadybugDB 0.20.4 rejects Kuzu 0.11.3 database files. Changing `.kuzu` to `.lbdb`
+does not convert the format. Stop the old database owner and back up its database
+and associated files before migration; keep that backup until verification ends.
+
+Export using a separate environment with `kuzu==0.11.3` installed. Replace these
+example paths with your source file and a new export directory:
+
+```python
+import kuzu
+
+with kuzu.Database("/data/project.kuzu", read_only=True) as database:
+    with kuzu.Connection(database) as connection:
+        connection.execute("EXPORT DATABASE '/data/project-export';").close()
+```
+
+In the LadybugDB environment, complete [FTS setup](#full-text-search-setup), then
+import into a new, empty database. Use the native default memory configuration
+for this import; a 64 MiB buffer failed in the migration probe.
+
+```python
+from pathlib import Path
+
+import ladybug
+
+new_path = Path("/data/project.lbdb")
+if new_path.exists():
+    raise FileExistsError(f"Choose a new database path: {new_path}")
+
+with ladybug.Database(str(new_path)) as database:
+    with ladybug.Connection(database) as connection:
+        connection.execute("LOAD fts;").close()
+        connection.execute("IMPORT DATABASE '/data/project-export';").close()
+```
+
+Import does not roll back all changes on failure. Keep the original untouched;
+if an import fails, retry with another fresh target after fixing the cause.
+Before pointing your application at the new file, compare node and relationship
+counts, properties and provenance, namespace-scoped reads, and representative
+search and recall results. Keep using the same application namespace.
 
 ### FastAPI and containers
 
@@ -219,7 +265,7 @@ from deepagents_graph_memory import GraphMemoryBackend
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     graph = GraphMemoryBackend.create(
-        path="/data/project.kuzu", namespace=("project", "demo"),
+        path="/data/project.lbdb", namespace=("project", "demo"),
     )
     app.state.graph = graph
     try:
@@ -245,8 +291,8 @@ storage integration. It cannot detect whether your mount survives redeployment.
 
 [Azure Container Apps storage mounts](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts)
 and [AWS ECS EFS volumes](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html)
-describe provider setup. These links are not a claim of tested Kuzu compatibility:
-network filesystems must support Kuzu's locking and file operations, and need
+describe provider setup. These links are not a claim of tested LadybugDB compatibility:
+network filesystems must support LadybugDB's locking and file operations, and need
 deployment-specific recovery tests. Local filesystem persistence is covered by
 this package's tests; Azure Files and EFS have not been integration-tested here.
 
@@ -410,7 +456,7 @@ The `record_graph_trace` tool uses its injected tool-call ID and runtime thread 
 for retries when no explicit `operation_id` is supplied. Direct calls without
 either ID continue to append traces.
 
-Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
+Writes are issued as LadybugDB Cypher `MERGE` statements (no raw Cypher is exposed to the agent).
 
 ### Graph Recall
 
@@ -418,7 +464,7 @@ Writes are issued as Kuzu Cypher `MERGE` statements (no raw Cypher is exposed to
 
 Matching generated trace components and paths are summarized once in recall. Explicit component anchors, custom nodes with different content, and direct `/graph/...` debug views remain available.
 
-Recall uses Kuzu keyword search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. The token budget estimates output size; it is not an exact token cap. No vector/embedding search is used.
+Recall uses LadybugDB keyword search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. The token budget estimates output size; it is not an exact token cap. No vector/embedding search is used.
 
 ```python
 graph_backend.recall_graph_memory("what services did incident 123 affect and what do they depend on?")
@@ -527,7 +573,7 @@ graph TB
     end
 
     subgraph Store ["Storage"]
-        Kuzu["Kuzu Graph: Memory or Disk<br/><i>kuzu_store.py</i>"]
+        LadybugDB["LadybugDB Graph: Memory or Disk<br/><i>ladybug_store.py</i>"]
     end
 
     Agent -->|"record_graph_trace<br/>recall_graph_memory"| Tools
@@ -536,8 +582,8 @@ graph TB
     Backend --> Recall
     Backend --> Renderers
     Backend --> Paths
-    Recall --> Kuzu
-    Renderers --> Kuzu
+    Recall --> LadybugDB
+    Renderers --> LadybugDB
     VGSProfile -.->|"guides graph and file use"| Agent
 
     style VGS fill:#1e293b,stroke:#334155,color:#e2e8f0
@@ -594,7 +640,7 @@ graph LR
 | Component | Module | Description |
 |---|---|---|
 | **Backend** | `backend.py` | `BackendProtocol` implementation for Deep Agents |
-| **Graph Store** | `kuzu_store.py` | Kuzu adapter with FTS indexing and scoped queries |
+| **Graph Store** | `ladybug_store.py` | LadybugDB adapter with FTS indexing and scoped queries |
 | **Recall Engine** | `recall.py` | Seed search &rarr; expansion &rarr; budget enforcement &rarr; markdown output |
 | **Tools** | `tools.py` | LangChain tools with error boundaries |
 | **Renderers** | `renderers.py` | Graph data &rarr; markdown view projections |
@@ -622,15 +668,44 @@ graph_backend.recall_graph_memory("what services did incident 123 affect and wha
 ## Installation
 
 ```bash
-pip install deepagents-graph-memory           # Core (includes Kuzu + LangChain)
+pip install deepagents-graph-memory           # Core (includes LadybugDB + LangChain)
 pip install deepagents-graph-memory[test]      # + pytest, ruff
 ```
 
+### Full-text search setup
+
+LadybugDB 0.20.4 requires a separately installed `fts` extension for graph search
+and recall. A fresh `pip install` does not provide it. Run this once during
+development setup or your image build with network access, following the
+[official extension installation](https://docs.ladybugdb.com/extensions/#install-an-extension):
+
+```python
+import ladybug
+
+with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as database:
+    with ladybug.Connection(database) as connection:
+        connection.execute("INSTALL fts;").close()
+        connection.execute("LOAD fts;").close()
+```
+
+Provision for the same LadybugDB version, OS, architecture, and runtime user.
+Keep the installed extension cache available in the runtime image or volume;
+building as a different user does not make that user's cache available to your
+application. After provisioning, runtime search loads the local extension.
+The adapter does not download extensions or fall back to another search method;
+a missing extension raises a configuration error.
+
 ### Requirements
 
-- Python 3.11+
+- Python 3.11–3.14 (`>=3.11,<3.15`)
 - Deep Agents 0.5.2+
-- Kuzu 0.11.3+
+- LadybugDB via `ladybug>=0.20.4,<0.21`
+
+The [Ladybug 0.20.4 wheels](https://pypi.org/project/ladybug/0.20.4/#files)
+include macOS 15+ (Intel and Apple Silicon), Linux, and Windows builds for
+x86-64 and ARM64. Check the available wheel for your Python version, architecture,
+and OS; wheel availability does not establish that this package passed tests on
+every combination.
 
 ## Development
 
@@ -644,7 +719,7 @@ python3 -m ruff check .                       # Lint
 
 ## Design
 
-`GraphMemoryBackend.create()` creates a Kuzu in-memory graph via `kuzu.Database(":memory:")`. Supply `path=...` to create or reopen a disk database. Persistence depends on retaining that filesystem across restarts; each writable database has one owning process. Both modes use the same graph tools and namespace rules.
+`GraphMemoryBackend.create()` creates a LadybugDB in-memory graph via `ladybug.Database(":memory:")`. Supply `path=...` to create or reopen a disk database. Persistence depends on retaining that filesystem across restarts; each writable database has one owning process. Both modes use the same graph tools and namespace rules.
 
 Recall uses full-text search to find seed nodes, relationship-label search for relationship-oriented questions, and bounded graph traversal to recover connected context. Vector search and graph algorithms are intentionally not part of the default recall path.
 

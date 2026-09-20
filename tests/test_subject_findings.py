@@ -7,7 +7,7 @@ import pytest
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.stores import GraphNode, valid_finding_link
 from deepagents_graph_memory.tools import graph_memory_tools
 
@@ -104,7 +104,7 @@ def test_invalid_supersession_is_atomic_and_delayed_report_cannot_win():
 
 
 def test_validation_and_scoping_and_old_api():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     left = GraphMemoryBackend(store, namespace=("left",))
     right = GraphMemoryBackend(store, namespace=("right",))
     record(left, "old", "failed", observed_at="2026-09-19T10:00:00Z")
@@ -237,7 +237,7 @@ def test_structured_refs_support_updates_resolutions_and_dependency_review():
 
 
 def test_explicit_resolution_reviews_competing_interpretations_without_deleting_them():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=("project",))
     other = GraphMemoryBackend(store, namespace=("other",))
     for trace_id, outcome in [("cache", "cache caused failure"), ("parser", "parser caused failure")]:
@@ -326,7 +326,7 @@ def test_subject_selection_keeps_branches_and_places_undated_findings_last():
 
 
 def test_subject_selection_is_scoped_and_prioritizes_resolution():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     left = GraphMemoryBackend(store, namespace=("left",))
     right = GraphMemoryBackend(store, namespace=("right",))
     for trace_id in ("cache", "parser"):
@@ -362,7 +362,7 @@ def test_subject_selection_is_scoped_and_prioritizes_resolution():
 
 
 def test_subject_selection_without_about_relationship_is_empty():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     store.add_node("Subject", "subject-orphan")
     store.add_node("Trace", "orphan")
     assert store.list_subject_trace_ids("subject-orphan").items == []

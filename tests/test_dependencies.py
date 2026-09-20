@@ -4,7 +4,7 @@ import pytest
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -52,7 +52,7 @@ def test_changed_premise_flags_direct_and_transitive_decisions_without_reversing
 
 
 def test_dependencies_validate_and_retry_by_identity_atomically():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     left = GraphMemoryBackend(store, namespace=("left",))
     right = GraphMemoryBackend(store, namespace=("right",))
     trace(left, "premise", "failed")

@@ -8,7 +8,7 @@ import pytest
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 
 
 def trace(backend, trace_id, **kwargs):
@@ -23,7 +23,7 @@ def trace(backend, trace_id, **kwargs):
 
 
 def test_shared_writers_merge_node_edge_properties_and_first_use_schema():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     parent = GraphMemoryBackend(store, namespace=("project",))
     child = GraphMemoryBackend(store, namespace=("project",))
     start = Barrier(2)
@@ -46,7 +46,7 @@ def test_shared_writers_merge_node_edge_properties_and_first_use_schema():
 
 
 def test_concurrent_traces_share_values_with_distinct_provenance():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backends = [GraphMemoryBackend(store, namespace=("project",)) for _ in range(3)]
     start = Barrier(3)
 
@@ -77,7 +77,7 @@ def test_concurrent_traces_share_values_with_distinct_provenance():
 
 
 def test_duplicate_and_component_collision_preserve_existing_graph():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     one = GraphMemoryBackend(store, namespace=("one",))
     two = GraphMemoryBackend(store, namespace=("two",))
     trace(one, "stable")
@@ -114,7 +114,7 @@ def test_operation_retry_preserves_original_graph_and_rejects_changed_request():
 
 
 def test_operation_identity_is_scoped_and_normalizes_observation_time():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     one = GraphMemoryBackend(store, namespace="one")
     two = GraphMemoryBackend(store, namespace="two")
     payload = dict(situation="probe", rationale="output", action="ran test", outcome="failed", subject="parser@linux", finding_type="state")
@@ -175,7 +175,7 @@ def test_operation_fingerprint_includes_caller_metadata():
 
 
 def test_late_failure_rolls_back_operation_identity(monkeypatch):
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     original_query = store.graph.query
 
@@ -195,7 +195,7 @@ def test_late_failure_rolls_back_operation_identity(monkeypatch):
 
 
 def test_late_database_failure_rolls_back_trace_and_connection_recovers(monkeypatch):
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     trace(backend, "prior")
     original_query = store.graph.query
@@ -217,7 +217,7 @@ def test_late_database_failure_rolls_back_trace_and_connection_recovers(monkeypa
 
 
 def test_caught_database_error_cannot_autocommit_after_abort():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     with pytest.raises(GraphMemoryConfigurationError, match="rolled back"):
         with store.transaction():
             store.add_node("File", "before")
@@ -231,7 +231,7 @@ def test_caught_database_error_cannot_autocommit_after_abort():
 
 
 def test_document_batch_validation_failure_is_atomic():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     good = SimpleNamespace(type="File", id="good", properties={"name": "good"})
     bad = SimpleNamespace(type="File", id="bad/id", properties={})
     docs = [SimpleNamespace(nodes=[good], relationships=[]), SimpleNamespace(nodes=[bad], relationships=[])]
@@ -243,7 +243,7 @@ def test_document_batch_validation_failure_is_atomic():
 
 
 def test_relationship_label_accepts_multiple_endpoint_pairs():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     store.add_edge("File", "a", "LINKS", "File", "b")
     store.add_edge("File", "a", "LINKS", "Task", "c")
     assert "(:File)-[:LINKS]->(:Task)" in store.get_schema()
@@ -251,7 +251,7 @@ def test_relationship_label_accepts_multiple_endpoint_pairs():
 
 
 def test_invalid_namespace_and_trace_inputs_make_no_changes():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace="a|b")
     with pytest.raises(GraphMemoryValidationError, match="namespace"):
         backend.add_graph_node("File", "x")
@@ -268,7 +268,7 @@ def test_invalid_namespace_and_trace_inputs_make_no_changes():
 
 
 def test_search_filters_scope_before_limiting_fts_candidates():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     for index in range(10):
         store.add_node("Entity", f"other-{index}", properties={"text": "needle needle needle"}, scope_key="other")
     store.add_node("Entity", "local", properties={"text": "needle " + "haystack " * 100})
@@ -280,7 +280,7 @@ def test_search_filters_scope_before_limiting_fts_candidates():
 def test_namespace_factory_reads_langgraph_runtime_context():
     from langgraph.graph import END, START, StateGraph
 
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=lambda runtime: (runtime.context["project"],))
     graph = StateGraph(dict)
 
@@ -298,7 +298,7 @@ def test_namespace_factory_reads_langgraph_runtime_context():
 
 @pytest.mark.parametrize("factory", [lambda runtime: "a|b", lambda runtime: ("bad|name",), lambda runtime: (), lambda runtime: 3])
 def test_bad_namespace_factory_result_is_validation_error(factory):
-    backend = GraphMemoryBackend(KuzuGraphStore.memory(), namespace=factory)
+    backend = GraphMemoryBackend(LadybugGraphStore.memory(), namespace=factory)
     with pytest.raises(GraphMemoryValidationError, match="namespace"):
         backend.add_graph_node("File", "x")
 
@@ -307,13 +307,13 @@ def test_namespace_factory_exception_is_validation_error():
     def fail(runtime):
         raise KeyError("project missing")
 
-    backend = GraphMemoryBackend(KuzuGraphStore.memory(), namespace=fail)
+    backend = GraphMemoryBackend(LadybugGraphStore.memory(), namespace=fail)
     with pytest.raises(GraphMemoryValidationError, match="namespace factory failed"):
         backend.add_graph_node("File", "x")
 
 
 def test_late_trace_validation_rolls_back_all_nodes_and_edges():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     trace(backend, "prior")
     with pytest.raises(GraphMemoryValidationError, match="node_id"):
@@ -325,7 +325,7 @@ def test_late_trace_validation_rolls_back_all_nodes_and_edges():
 
 
 def test_commit_failure_rolls_back_and_next_write_succeeds(monkeypatch):
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     original_query = store.graph.query
 
     def fail_commit(query, params=None):
@@ -343,7 +343,7 @@ def test_commit_failure_rolls_back_and_next_write_succeeds(monkeypatch):
 
 
 def test_document_relationship_failure_rolls_back_prior_batch():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     store.add_node("File", "prior", properties={"protected": True})
     good = SimpleNamespace(type="File", id="good", properties={})
     bad_relationship = SimpleNamespace(source=good, target=good, type="BAD-NAME", properties={})
@@ -359,7 +359,7 @@ def test_async_tool_calls_share_one_store():
 
     from deepagents_graph_memory.tools import graph_memory_tools
 
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backends = [GraphMemoryBackend(store, namespace=("project",)) for _ in range(2)]
     tools = [{tool.name: tool for tool in graph_memory_tools(backend)} for backend in backends]
 
@@ -379,7 +379,7 @@ def test_async_tool_calls_share_one_store():
 
 
 def test_case_variant_table_names_are_rejected_without_aliasing():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     store.add_node("Service", "one")
     with pytest.raises(GraphMemoryValidationError, match="conflicts"):
         store.add_node("service", "two")
@@ -394,7 +394,7 @@ def test_case_variant_table_names_are_rejected_without_aliasing():
 
 
 def test_concurrent_case_variant_schema_has_one_unambiguous_winner():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     start = Barrier(2)
 
     def write(label):
@@ -419,7 +419,7 @@ def test_concurrent_case_variant_schema_has_one_unambiguous_winner():
 def test_existing_shared_value_collision_rejects_trace(label, prefix, text, properties):
     from deepagents_graph_memory.backend import _value_id
 
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     node_id = _value_id(prefix, text)
     store.add_node(label, node_id, properties=properties)
@@ -431,7 +431,7 @@ def test_existing_shared_value_collision_rejects_trace(label, prefix, text, prop
 
 
 def test_scope_metadata_override_and_invalid_json_are_rejected():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=("project",))
     for properties in ({"scope_key": "other"}, {"nested": {1: "a", "1": "b"}}, {"bad": float("nan")}):
         with pytest.raises(GraphMemoryValidationError):
@@ -447,7 +447,7 @@ def test_scope_metadata_override_and_invalid_json_are_rejected():
 
 
 def test_node_and_edge_upserts_preserve_creation_time_and_omitted_properties():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     backend.add_graph_node("File", "a", {"first": 1})
     first_node = store.get_node("File", "a")
@@ -465,7 +465,7 @@ def test_node_and_edge_upserts_preserve_creation_time_and_omitted_properties():
 
 
 def test_generated_trace_and_shared_value_ids_use_full_digests():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store)
     trace_id = backend.record_graph_trace(
         situation="observed", rationale="reasoned", action="acted", outcome="completed", artifacts=["src/a.py"], evidence=["test passed"]

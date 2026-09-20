@@ -1,26 +1,7 @@
-# - Checks how the Kuzu store prepares and searches text using a pretend database.
-# - Cases: using Kuzu text search when available, and including aliases and descriptions in searchable text.
+# - Checks how the Ladybug store prepares and searches text using a pretend database.
+# - Cases: using Ladybug text search when available, and including aliases and descriptions in searchable text.
 
-import importlib
-import sys
-import types
-
-
-def import_kuzu_store(monkeypatch):
-    fake_kuzu = types.ModuleType("kuzu")
-    fake_kuzu.Database = lambda path: object()
-
-    fake_graph_module = types.ModuleType("langchain_community.graphs.kuzu_graph")
-    fake_graph_module.KuzuGraph = object
-
-    monkeypatch.setitem(sys.modules, "kuzu", fake_kuzu)
-    monkeypatch.setitem(sys.modules, "langchain_community", types.ModuleType("langchain_community"))
-    monkeypatch.setitem(sys.modules, "langchain_community.graphs", types.ModuleType("langchain_community.graphs"))
-    monkeypatch.setitem(sys.modules, "langchain_community.graphs.kuzu_graph", fake_graph_module)
-    sys.modules.pop("deepagents_graph_memory.kuzu_store", None)
-    module = importlib.import_module("deepagents_graph_memory.kuzu_store")
-    sys.modules.pop("deepagents_graph_memory.kuzu_store", None)
-    return module
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 
 
 class FakeGraph:
@@ -35,7 +16,7 @@ class FakeGraph:
             return [
                 {
                     "node": {
-                        "_label": "service",
+                        "_LABEL": "service",
                         "id": "auth-service",
                         "properties": '{"aliases": ["login service"], "scope_key": "tenant"}',
                     },
@@ -48,7 +29,7 @@ class FakeGraph:
             return [
                 {
                     "n": {
-                        "_label": "service",
+                        "_LABEL": "service",
                         "id": "auth-service",
                         "properties": '{"aliases": ["login service"], "scope_key": "tenant"}',
                     }
@@ -57,10 +38,9 @@ class FakeGraph:
         return []
 
 
-def test_kuzu_search_uses_fts_when_available(monkeypatch):
-    kuzu_store = import_kuzu_store(monkeypatch)
+def test_ladybug_search_uses_fts_when_available():
     graph = FakeGraph()
-    store = kuzu_store.KuzuGraphStore(graph)
+    store = LadybugGraphStore(graph)
 
     result = store.search("login service", scope_key="tenant")
 
@@ -71,10 +51,9 @@ def test_kuzu_search_uses_fts_when_available(monkeypatch):
     assert "QUERY_FTS_INDEX" in queries
 
 
-def test_kuzu_add_node_writes_search_text(monkeypatch):
-    kuzu_store = import_kuzu_store(monkeypatch)
+def test_ladybug_add_node_writes_search_text():
     graph = FakeGraph()
-    store = kuzu_store.KuzuGraphStore(graph)
+    store = LadybugGraphStore(graph)
 
     store.add_node("service", "auth-service", properties={"aliases": ["login service"], "description": "Handles login."})
 

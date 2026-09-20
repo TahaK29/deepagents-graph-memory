@@ -1,16 +1,16 @@
-# - Checks that a fresh backend starts with a temporary Kuzu graph.
+# - Checks that a fresh backend starts with a temporary Ladybug graph.
 # - Cases: the default store, and keeping reset options out of the public API.
 
 from inspect import signature
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 
 
-def test_create_defaults_to_in_memory_kuzu_backend():
+def test_create_defaults_to_in_memory_ladybug_backend():
     backend = GraphMemoryBackend.create()
 
-    assert isinstance(backend.store, KuzuGraphStore)
+    assert isinstance(backend.store, LadybugGraphStore)
     backend.add_graph_node("File", "temporary")
     another = GraphMemoryBackend.create()
     assert another.store.get_node("File", "temporary") is None
@@ -28,5 +28,5 @@ def test_reset_apis_are_not_exposed():
     assert not hasattr(GraphMemoryBackend, "local")
     assert not hasattr(GraphMemoryBackend, "from" + "_graph")
     assert not hasattr(GraphMemoryBackend, "clear" + "_graph")
-    assert not hasattr(KuzuGraphStore, "local")
-    assert not hasattr(KuzuGraphStore, "clear")
+    assert not hasattr(LadybugGraphStore, "local")
+    assert not hasattr(LadybugGraphStore, "clear")

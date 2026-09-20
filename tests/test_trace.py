@@ -8,7 +8,7 @@ import pytest
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.errors import GraphMemoryValidationError
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
 
 
@@ -194,7 +194,7 @@ def test_structured_source_is_shared_but_citation_summaries_belong_to_traces():
 
 
 def test_structured_source_identity_conflict_rolls_back_and_is_scoped():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     left = GraphMemoryBackend(store, namespace=("left",))
     right = GraphMemoryBackend(store, namespace=("right",))
     payload = dict(situation="check", rationale="output", action="ran test", outcome="failed")

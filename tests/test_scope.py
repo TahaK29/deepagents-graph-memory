@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.documents import Document
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 
 
 # Lightweight stand-ins for LangChain GraphDocument/Node/Relationship. The store
@@ -37,7 +37,7 @@ class GraphDocument:
 
 
 def test_scopes_isolate_reads_and_writes():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -51,7 +51,7 @@ def test_scopes_isolate_reads_and_writes():
 
 
 def test_scopes_isolate_shared_public_node_ids():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -70,7 +70,7 @@ def test_scopes_isolate_shared_public_node_ids():
 
 
 def test_scoped_label_listing_hides_other_scopes():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -83,7 +83,7 @@ def test_scoped_label_listing_hides_other_scopes():
 
 
 def test_scoped_node_listing_filters_before_limit():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",), max_nodes=1)
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -99,7 +99,7 @@ def test_scoped_node_listing_filters_before_limit():
 
 
 def test_scoped_search_hides_other_scope_nodes():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
@@ -113,7 +113,7 @@ def test_scoped_search_hides_other_scope_nodes():
 
 
 def test_scope_metadata_is_written():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     backend = GraphMemoryBackend(store, namespace=("alice",))
 
     backend.add_graph_node("service", "langfuse")
@@ -125,7 +125,7 @@ def test_scope_metadata_is_written():
 
 
 def test_graph_documents_preserve_scope_isolation():
-    store = KuzuGraphStore.memory()
+    store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 

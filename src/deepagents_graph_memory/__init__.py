@@ -1,6 +1,6 @@
 # - Gives apps one place to import the main graph features.
 # - Tests: test_vgs.py checks the public graph setup helpers;
-#        test_optional_vgs_dependency.py checks what happens without Kuzu.
+#        test_optional_vgs_dependency.py checks what happens without LadybugDB.
 
 """Graph-backed memory backend for LangChain Deep Agents."""
 

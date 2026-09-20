@@ -33,7 +33,7 @@ from deepagents.backends.protocol import (
 )
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
-from deepagents_graph_memory.kuzu_store import KuzuGraphStore
+from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.paths import (
     node_path,
     normalize_graph_path,
@@ -87,7 +87,7 @@ class GraphMemoryBackend(BackendProtocol):
         max_nodes: int = 50,
         max_edges: int = 100,
     ) -> GraphMemoryBackend:
-        """Create a Kuzu graph memory backend.
+        """Create a LadybugDB graph memory backend.
 
         Args:
             path: Persistent database file path; omitted for an in-memory graph.
@@ -99,15 +99,15 @@ class GraphMemoryBackend(BackendProtocol):
             Configured graph memory backend.
         """
         return cls(
-            KuzuGraphStore.memory() if path is None else KuzuGraphStore.disk(path),
+            LadybugGraphStore.memory() if path is None else LadybugGraphStore.disk(path),
             namespace=namespace,
             max_nodes=max_nodes,
             max_edges=max_edges,
         )
 
     def close(self) -> None:
-        """Close resources owned by a Kuzu store."""
-        if isinstance(self.store, KuzuGraphStore):
+        """Close resources owned by a LadybugDB store."""
+        if isinstance(self.store, LadybugGraphStore):
             self.store.close()
 
     def ls(self, path: str) -> LsResult:

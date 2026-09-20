@@ -1,6 +1,8 @@
 # Workflow evaluation
 
-Run the twelve deterministic integration cases without a model or provider credentials:
+Complete the [full-text search setup](../README.md#full-text-search-setup) first;
+LadybugDB needs the local `fts` extension. Then run the twelve deterministic
+integration cases without a model or provider credentials:
 
 ```bash
 .venv/bin/python evals/run_workflows.py
