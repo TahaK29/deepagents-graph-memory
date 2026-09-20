@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
 import sys
+from functools import cache
 from importlib.abc import MetaPathFinder
 from importlib.util import spec_from_file_location
 from pathlib import Path
@@ -39,6 +41,13 @@ def load_ladybug() -> Any:
     return module
 
 
+@cache
+def _preload_windows_fts(path: Path) -> Any:
+    # Ladybug uses LoadLibraryW, which ignores Python's added DLL directories.
+    # ctypes uses LoadLibraryEx with secure search flags; retain its handle.
+    return ctypes.CDLL(str(path))
+
+
 def fts_load_query() -> str:
     """Load the wheel's FTS binary directly, without using a user extension cache."""
     name = "libfts.dll" if sys.platform == "win32" else "libfts.so"
@@ -48,5 +57,11 @@ def fts_load_query() -> str:
     if not path.is_file():
         msg = "Bundled LadybugDB search extension is missing; reinstall deepagents-graph-memory."
         raise GraphMemoryConfigurationError(msg)
+    if sys.platform == "win32":
+        try:
+            _preload_windows_fts(path)
+        except OSError as exc:
+            msg = "Bundled LadybugDB search dependencies could not load; reinstall deepagents-graph-memory."
+            raise GraphMemoryConfigurationError(msg) from exc
     escaped = path.as_posix().replace("\\", "\\\\").replace("'", "\\'")
     return f"LOAD EXTENSION '{escaped}';"
