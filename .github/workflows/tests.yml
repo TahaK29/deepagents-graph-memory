@@ -25,6 +25,9 @@ jobs:
         run: python -m pip install ".[test]"
       - name: Verify Ladybug is the only installed graph engine
         run: python -c "import importlib.util; import ladybug; assert importlib.util.find_spec('kuzu') is None"
+      - name: Diagnose Windows native binding
+        if: runner.os == 'Windows'
+        run: python -c "import ssl, sys; print(ssl.OPENSSL_VERSION, sys.base_prefix, flush=True); import ladybug._lbug"
       - name: Provision the Ladybug FTS extension
         # Standard CPython loads the OpenSSL DLLs needed by Ladybug on Windows.
         run: python -c "import ssl; import ladybug; db = ladybug.Database(':memory:'); conn = ladybug.Connection(db); conn.execute('INSTALL fts;').close(); conn.close(); db.close()"
