@@ -15,15 +15,20 @@ Created by **Pranav Bedi and Taha Khan**.
 
 ## Why use this?
 
-When an agent works on a long task, useful context gets spread across files,
-logs, and earlier conversations. This library lets it save the connections:
-**a failing test → the fix it tried → the result → the evidence**.
+An agent can find an old answer and still be missing why that answer made sense.
+Neo4j's [From recall to reasoning](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/)
+inspired this project: connect what happened, why an action was chosen, and what
+followed, so the agent can retrieve the reasoning behind earlier work.
 
-Later, that agent or another agent sharing the graph can look up the related
-work. For example: “What have we already tried to fix this parser, and which
-test checked the change?” Keep the full files and logs where they are; the graph
-records findings and links to them. Agents choose what to record, so it doesn't
-automatically capture every action or check whether a finding is true.
+This library brings that pattern to Deep Agents. For example, an agent can record:
+**a parser test failed → it suspected a missing empty field → it changed the parser → the test passed**,
+with links to the file and test output. Later, an agent sharing that graph can
+look up what was tried and why, with the evidence to check it.
+
+Use it for long tasks or shared agent work where those connections matter.
+Keep full files and logs in your filesystem. The agent chooses what to record
+and does the reasoning; the graph stores and retrieves the links. It doesn't
+automatically learn rules or verify that a recorded explanation is true.
 
 ## Installation
 
