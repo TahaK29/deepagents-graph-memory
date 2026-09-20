@@ -1,5 +1,5 @@
 # - Sets up Deep Agents to work through graph tools and explains how to use that context.
-# - Adds combined file-and-graph guidance or strips file guidance for graph-only mode.
+# - Adds graph guidance while preserving application-supplied instructions.
 # - Tests: test_vgs.py and test_combined_context.py check prompt and tool behavior.
 
 """Graph context guidance for Deep Agents."""
@@ -10,11 +10,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 from deepagents import HarnessProfile, register_harness_profile
-from deepagents.middleware.filesystem import EXECUTION_SYSTEM_PROMPT, FILESYSTEM_SYSTEM_PROMPT
+from deepagents.middleware import filesystem
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, ContentBlock, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 
-VFS_TOOL_NAMES = frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep"})
+VFS_TOOL_NAMES = frozenset({"ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep"})
 """Deep Agents default virtual-filesystem tool names."""
 
 _GRAPH_CONTEXT_INTRO = """## Virtual Graph System (VGS)
@@ -112,7 +112,7 @@ same operation identity without repeating a successful external action.
 
 
 class _VGSSystemPromptMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Add graph guidance, optionally replacing Deep Agents filesystem guidance."""
+    """Add graph guidance while preserving application-supplied instructions."""
 
     def __init__(self, system_prompt: str, *, strip_filesystem_guidance: bool = True) -> None:
         self.system_prompt = system_prompt
@@ -148,8 +148,7 @@ def vgs_harness_profile(*, system_prompt_suffix: str | None = VGS_SYSTEM_PROMPT_
     """Create a Deep Agents harness profile for VGS mode.
 
     Args:
-        system_prompt_suffix: Optional VGS prompt text. It is appended through
-            late middleware after removing Deep Agents filesystem guidance.
+        system_prompt_suffix: Optional VGS prompt text appended through middleware.
 
     Returns:
         Harness profile that excludes Deep Agents filesystem tools.
@@ -168,15 +167,15 @@ def register_vgs_harness_profile(model: str, *, system_prompt_suffix: str | None
     register_harness_profile(model, vgs_harness_profile(system_prompt_suffix=system_prompt_suffix))
 
 
-def _apply_vgs_system_text(system_message: SystemMessage | None, text: str, strip_filesystem_guidance: bool = True) -> SystemMessage:
-    if strip_filesystem_guidance:
-        content_blocks = _remove_filesystem_guidance_blocks(list(system_message.content_blocks) if system_message else [])
-    elif system_message is None:
+def _apply_vgs_system_text(system_message: SystemMessage | None, text: str, strip_filesystem_guidance: bool) -> SystemMessage:
+    if system_message is None:
         content_blocks = []
     elif isinstance(system_message.content, str):
         content_blocks = [{"type": "text", "text": system_message.content}]
     else:
         content_blocks = list(system_message.content)
+    if strip_filesystem_guidance:
+        content_blocks = _remove_legacy_filesystem_guidance(content_blocks)
     if content_blocks:
         text = f"\n\n{text}"
     content_blocks.append({"type": "text", "text": text})
@@ -184,59 +183,28 @@ def _apply_vgs_system_text(system_message: SystemMessage | None, text: str, stri
     return system_message.model_copy(update={"content": content}) if system_message else SystemMessage(content=content)
 
 
-def _remove_filesystem_guidance_blocks(content_blocks: list[ContentBlock]) -> list[ContentBlock]:
-    result: list[ContentBlock] = []
+def _remove_legacy_filesystem_guidance(content_blocks: list[Any]) -> list[Any]:
+    # Deep Agents 0.7 puts this guidance in tool descriptions, not system prompts.
+    if not getattr(filesystem, "FILESYSTEM_SYSTEM_PROMPT", None):
+        return content_blocks
+    execution_prompt = getattr(filesystem, "EXECUTION_SYSTEM_PROMPT", "")
+    result = []
     for block in content_blocks:
-        block_text = _text_block_text(block)
-        if block_text is None:
+        text = block.get("text") if isinstance(block, dict) and block.get("type") == "text" else None
+        if not isinstance(text, str):
             result.append(block)
             continue
-
-        updated_text = _remove_filesystem_guidance_text(block_text)
-        if not updated_text:
-            continue
-        if updated_text == block_text:
+        stripped = text.strip()
+        _, separator, execution = stripped.partition("## Execute Tool `execute`")
+        execution = separator + execution
+        if not (
+            stripped.startswith("## Following Conventions")
+            and "## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`" in stripped
+            and "## Large Tool Results" in stripped
+            and "Offloaded tool results are stored under " in stripped
+            and (not execution or execution == execution_prompt)
+        ):
             result.append(block)
-            continue
-        result.append(cast("ContentBlock", {**block, "text": updated_text}))
+        elif execution:
+            result.append({**block, "text": text[: len(text) - len(text.lstrip())] + execution})
     return result
-
-
-def _text_block_text(block: ContentBlock) -> str | None:
-    if not isinstance(block, dict) or block.get("type") != "text":
-        return None
-    text = block.get("text")
-    return text if isinstance(text, str) else None
-
-
-def _remove_filesystem_guidance_text(text: str) -> str:
-    leading_whitespace = text[: len(text) - len(text.lstrip())]
-    stripped = text.strip()
-    if not _is_deepagents_filesystem_guidance(stripped):
-        return text
-
-    execute_index = stripped.find("## Execute Tool `execute`")
-    if execute_index == -1:
-        return ""
-    return leading_whitespace + stripped[execute_index:]
-
-
-def _is_deepagents_filesystem_guidance(text: str) -> bool:
-    if text == FILESYSTEM_SYSTEM_PROMPT:
-        return True
-    if text == f"{FILESYSTEM_SYSTEM_PROMPT}\n\n{EXECUTION_SYSTEM_PROMPT}":
-        return True
-
-    if not text.startswith("## Following Conventions"):
-        return False
-    if "## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`" not in text:
-        return False
-    if "## Large Tool Results" not in text:
-        return False
-    if "Offloaded tool results are stored under " not in text:
-        return False
-
-    execute_index = text.find("## Execute Tool `execute`")
-    if execute_index == -1:
-        return True
-    return text[execute_index:].strip() == EXECUTION_SYSTEM_PROMPT

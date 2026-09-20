@@ -1,11 +1,10 @@
 # - Checks the Deep Agents setup for working with graph context.
-# - Cases: excluding the usual file tools, keeping the base and execute instructions, replacing file guidance;
+# - Cases: excluding the usual file tools, keeping application instructions;
 #        turning graph guidance off and registering the setup for a model.
 
 import asyncio
 
-from deepagents.middleware._utils import append_to_system_message
-from deepagents.middleware.filesystem import EXECUTION_SYSTEM_PROMPT, FILESYSTEM_SYSTEM_PROMPT, FilesystemMiddleware
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -13,18 +12,21 @@ from langchain_core.messages import HumanMessage, SystemMessage
 import deepagents_graph_memory.vgs as vgs
 from deepagents_graph_memory import VFS_TOOL_NAMES, graph_context_middleware, vgs_harness_profile
 
+APP_FILESYSTEM_PROMPT = "Use filesystem tools for project files."
+APP_EXECUTION_PROMPT = "Run project commands with execute."
+
 
 def test_vgs_harness_profile_excludes_default_vfs_tools():
     profile = vgs_harness_profile()
 
     assert profile.excluded_tools == VFS_TOOL_NAMES
-    assert VFS_TOOL_NAMES == frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep"})
+    assert VFS_TOOL_NAMES == frozenset({"ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep"})
 
 
 def test_vgs_excluded_tools_match_deepagents_filesystem_tools():
     filesystem_tool_names = {tool.name for tool in FilesystemMiddleware().tools}
 
-    assert VFS_TOOL_NAMES < filesystem_tool_names
+    assert filesystem_tool_names - {"execute"} <= VFS_TOOL_NAMES
     assert "execute" in filesystem_tool_names
     assert "execute" not in VFS_TOOL_NAMES
 
@@ -36,12 +38,7 @@ def test_vgs_harness_profile_does_not_replace_base_prompt():
     assert profile.system_prompt_suffix is None
 
 
-def test_vgs_strips_prompt_from_real_filesystem_middleware():
-    # Drive the real Deep Agents FilesystemMiddleware so this test exercises the
-    # actual filesystem prompt text and content-block layout it injects, rather
-    # than a copy of the prompt constants. If Deep Agents changes how it builds
-    # or splits that prompt, VGS would silently stop stripping it; a
-    # self-referential test cannot catch that, but this one fails loudly.
+def test_vgs_adds_guidance_after_real_filesystem_middleware():
     filesystem_middleware = FilesystemMiddleware()
     vgs_middleware = vgs_harness_profile().materialize_extra_middleware()[0]
     captured = {}
@@ -64,8 +61,7 @@ def test_vgs_strips_prompt_from_real_filesystem_middleware():
     def vgs_handler(next_request):
         return vgs_middleware.wrap_model_call(next_request, model_handler)
 
-    # FilesystemMiddleware is the outer middleware (injects the prompt); VGS runs
-    # inside it (strips the prompt), mirroring the real Deep Agents stack order.
+    # Match the real middleware order without depending on upstream prompt text.
     filesystem_middleware.wrap_model_call(request, vgs_handler)
 
     system_prompt = captured["system_prompt"]
@@ -76,24 +72,14 @@ def test_vgs_strips_prompt_from_real_filesystem_middleware():
     assert "## Virtual Graph System (VGS)" in system_prompt
 
 
-def test_vgs_preserves_execute_prompt_with_real_prompt_assembly():
-    # The execute prompt is only injected when a backend supports execution,
-    # which needs a full sandbox backend to drive end-to-end. Instead, build the
-    # combined filesystem+execute prompt exactly the way FilesystemMiddleware
-    # does (joined with blank lines, then appended via Deep Agents' own
-    # append_to_system_message helper), so the input still matches production
-    # block structure rather than being hand-rolled.
-    combined_prompt = "\n\n".join([FILESYSTEM_SYSTEM_PROMPT, EXECUTION_SYSTEM_PROMPT]).strip()
-    system_message = append_to_system_message(
-        SystemMessage(content_blocks=[{"type": "text", "text": "Base prompt"}]),
-        combined_prompt,
-    )
+def test_vgs_preserves_custom_filesystem_and_execute_instructions():
+    filesystem_middleware = FilesystemMiddleware(system_prompt=f"{APP_FILESYSTEM_PROMPT}\n\n{APP_EXECUTION_PROMPT}")
     vgs_middleware = vgs_harness_profile().materialize_extra_middleware()[0]
     captured = {}
     request = ModelRequest(
         model=FakeListChatModel(responses=["ok"]),
         messages=[HumanMessage(content="hello")],
-        system_message=system_message,
+        system_message=SystemMessage(content="Base prompt"),
         tools=[],
     )
 
@@ -101,12 +87,12 @@ def test_vgs_preserves_execute_prompt_with_real_prompt_assembly():
         captured["system_prompt"] = next_request.system_message.text
         return ModelResponse(result=[])
 
-    vgs_middleware.wrap_model_call(request, model_handler)
+    filesystem_middleware.wrap_model_call(request, lambda request: vgs_middleware.wrap_model_call(request, model_handler))
 
     system_prompt = captured["system_prompt"]
     assert "Base prompt" in system_prompt
-    assert "## Filesystem Tools" not in system_prompt
-    assert "## Execute Tool `execute`" in system_prompt
+    assert APP_FILESYSTEM_PROMPT in system_prompt
+    assert APP_EXECUTION_PROMPT in system_prompt
     assert "## Virtual Graph System (VGS)" in system_prompt
 
 
@@ -135,7 +121,7 @@ def test_combined_middleware_preserves_filesystem_guidance_and_message_metadata(
     system_message = SystemMessage(
         content_blocks=[
             {"type": "text", "text": "Base prompt"},
-            {"type": "text", "text": f"{FILESYSTEM_SYSTEM_PROMPT}\n\n{EXECUTION_SYSTEM_PROMPT}"},
+            {"type": "text", "text": f"{APP_FILESYSTEM_PROMPT}\n\n{APP_EXECUTION_PROMPT}"},
             {"type": "text", "text": "Custom instructions"},
         ],
         id="system-1",
@@ -156,8 +142,8 @@ def test_combined_middleware_preserves_filesystem_guidance_and_message_metadata(
     assert result.id == "system-1" and result.name == "project"
     assert result.additional_kwargs == {"scope": "test"}
     assert result.content_blocks[:3] == system_message.content_blocks
-    assert FILESYSTEM_SYSTEM_PROMPT in result.text
-    assert EXECUTION_SYSTEM_PROMPT in result.text
+    assert APP_FILESYSTEM_PROMPT in result.text
+    assert APP_EXECUTION_PROMPT in result.text
     assert "Custom instructions" in result.text
     assert "normal memory" in result.text.lower()
     assert "do not assume the default Deep Agents filesystem tools are available" not in result.text
@@ -168,7 +154,7 @@ def test_combined_middleware_preserves_content_blocks_and_metadata_async():
         content=[
             {"type": "text", "text": "Base"},
             {"type": "image_url", "image_url": {"url": "https://example.test/image.png"}, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": FILESYSTEM_SYSTEM_PROMPT},
+            {"type": "text", "text": APP_FILESYSTEM_PROMPT},
             {"type": "text", "text": "Custom"},
         ],
         id="system-async",

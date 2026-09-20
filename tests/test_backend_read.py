@@ -4,7 +4,9 @@
 
 import re
 
+import pytest
 from deepagents.backends import CompositeBackend
+from deepagents.backends.protocol import ReadResult
 
 from deepagents_graph_memory.backend import GraphMemoryBackend
 
@@ -117,7 +119,7 @@ def test_read_limits_slice_lines():
     result = backend.read("/index.md", offset=0, limit=1)
 
     assert result.error is None
-    assert result.file_data["content"] == "# Graph Memory"
+    assert result.file_data["content"] == "# Graph Memory\n"
 
 
 def test_download_files_uses_virtual_graph_views():
@@ -128,3 +130,68 @@ def test_download_files_uses_virtual_graph_views():
     assert response.error is None
     assert response.content is not None
     assert b"Graph Schema" in response.content
+
+
+def test_read_preserves_newlines_and_rejects_offsets_past_end():
+    backend = make_backend()
+    try:
+        assert backend.read("/index.md", limit=1).file_data["content"] == "# Graph Memory\n"
+        assert backend.read("/index.md", offset=10000).error
+        assert backend.read("/index.md", limit=0).file_data["content"] == ""
+    finally:
+        backend.close()
+
+
+def test_read_normalizes_bounds_and_reports_pagination():
+    backend = make_backend()
+    try:
+        full = backend.read("/index.md")
+        first = backend.read("/index.md", offset=-10, limit=1)
+        assert first.error is None
+        assert first.file_data["content"] == "# Graph Memory\n"
+        rest = backend.read("/index.md", offset=1)
+        if hasattr(ReadResult, "next_offset"):
+            assert (first.start_line, first.end_line, first.next_offset) == (1, 1, 1)
+            assert first.total_lines == len(full.file_data["content"].splitlines())
+            assert rest.start_line == 2 and rest.end_line == first.total_lines
+            assert rest.next_offset is None
+        assert first.file_data["content"] + rest.file_data["content"] == full.file_data["content"]
+        for limit in (0, -1):
+            empty = backend.read("/uninspected", offset=10000, limit=limit)
+            assert empty.error is None and empty.file_data["content"] == ""
+            if hasattr(ReadResult, "no_lines_requested"):
+                assert empty.no_lines_requested
+                assert (empty.start_line, empty.end_line, empty.next_offset, empty.total_lines) == (None, None, None, None)
+    finally:
+        backend.close()
+
+
+def test_file_operations_return_errors_for_directories_and_closed_stores():
+    backend = make_backend()
+    assert backend.read("/graph/").error
+    assert backend.download_files(["/graph/"])[0].error == "is_directory"
+    backend.close()
+    assert "closed" in backend.ls("/nodes").error
+    assert "closed" in backend.read("/schema.md").error
+    assert "closed" in backend.glob("**/*.md").error
+    assert "closed" in backend.grep("service").error
+
+
+@pytest.mark.asyncio
+async def test_composite_async_backend_contract():
+    backend = make_backend()
+    composite = CompositeBackend(default=backend, routes={"/graph/": backend})
+    path = "/graph/nodes/service/redis.md"
+    try:
+        assert path in {entry["path"] for entry in (await composite.als("/graph/nodes/service")).entries}
+        assert (await composite.aread(path)).file_data["content"].startswith("# service: redis")
+        assert path in {entry["path"] for entry in (await composite.aglob("*.md", path="/graph/nodes/service")).matches}
+        assert (await composite.agrep("redis", path=path)).matches
+        assert (await composite.awrite(path, "replacement")).error
+        assert (await composite.aedit(path, "redis", "replacement")).error
+        assert (await composite.aupload_files([(path, b"replacement")]))[0].error
+        downloads = await composite.adownload_files([path, "/graph/nodes/service/missing.md"])
+        assert downloads[0].content.startswith(b"# service: redis")
+        assert downloads[1].error == "file_not_found"
+    finally:
+        backend.close()

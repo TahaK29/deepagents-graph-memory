@@ -105,9 +105,11 @@ The default backend remains writable for files and offloaded tool results. Graph
 writes go through controlled graph tools; generated graph views reject mutation.
 No new routing or synchronization layer is needed.
 
-The existing graph-only profile deliberately removes filesystem tools and
-guidance. Its model-wide registration must not be used for combined-mode agents;
-agent-local middleware cannot reverse previously registered tool exclusions.
+The graph-only profile hides filesystem tools, including `delete` where present,
+and removes older Deep Agents releases' automatically added filesystem guidance.
+Application instructions are preserved. Its model-wide registration must not be
+used for combined-mode agents; agent-local middleware cannot reverse previously
+registered tool exclusions. This profile is not an authorization boundary.
 
 ## Storage Lifetime
 

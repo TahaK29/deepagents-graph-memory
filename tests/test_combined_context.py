@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+import deepagents.graph
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -12,7 +13,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 from pydantic import PrivateAttr
 
-from deepagents_graph_memory import GraphMemoryBackend, graph_context_middleware, graph_memory_tools
+from deepagents_graph_memory import VFS_TOOL_NAMES, GraphMemoryBackend, graph_context_middleware, graph_memory_tools, register_vgs_harness_profile
 
 
 class ScriptedModel(BaseChatModel):
@@ -37,6 +38,31 @@ class ScriptedModel(BaseChatModel):
         else:
             message = AIMessage(content="finished")
         return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+def test_registered_graph_only_profile_works_with_real_agent(monkeypatch):
+    graph = GraphMemoryBackend.create()
+    model = ScriptedModel(steps=[])
+    monkeypatch.setattr(deepagents.graph, "resolve_model", lambda _: model)
+    register_vgs_harness_profile("test:graph-only-compatibility")
+    try:
+        agent = create_deep_agent(
+            model="test:graph-only-compatibility",
+            tools=graph_memory_tools(graph),
+            backend=CompositeBackend(default=StateBackend(), routes={"/graph/": graph}),
+            system_prompt="Preserve application instructions.",
+            memory=["/graph/index.md"],
+        )
+        agent.invoke({"messages": [HumanMessage(content="Check graph context.")]})
+        assert not model._tool_names & VFS_TOOL_NAMES
+        assert {"recall_graph_memory", "record_graph_trace"} <= model._tool_names
+        prompt = next(message.text for message in model._seen[0] if isinstance(message, SystemMessage))
+        assert "Preserve application instructions." in prompt
+        assert "Virtual Graph System" in prompt
+        assert "Graph Memory" in prompt
+        assert "## Filesystem Tools" not in prompt
+    finally:
+        graph.close()
 
 
 def test_file_workflow_records_selective_graph_context_and_reads_source():
@@ -75,7 +101,7 @@ def test_file_workflow_records_selective_graph_context_and_reads_source():
 
     assert {"ls", "read_file", "write_file", "edit_file", "glob", "grep", "recall_graph_memory", "record_graph_trace"} <= model._tool_names
     assert any(
-        "## Filesystem Tools" in message.text and "Project instructions" in message.text and "Virtual Graph System" in message.text
+        "Project instructions" in message.text and "Virtual Graph System" in message.text
         for message in model._seen[0]
         if isinstance(message, SystemMessage)
     )
@@ -223,7 +249,7 @@ def test_configured_inline_subagent_shares_evidence_file_and_trace_with_parent()
     assert "Child observed parser green." in replies[1].text
     assert "Parser green" in replies[2].text
     assert any(
-        "Virtual Graph System" in message.text and "## Filesystem Tools" in message.text
+        "Virtual Graph System" in message.text and "Inspect parser evidence." in message.text
         for message in child._seen[0]
         if isinstance(message, SystemMessage)
     )

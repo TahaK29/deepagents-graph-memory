@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import json
+import sys
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,8 +31,10 @@ from deepagents.backends.protocol import (
     ReadResult,
     WriteResult,
 )
+from deepagents.backends.utils import create_file_data, slice_read_response
+from wcmatch import glob as wcglob
 
-from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
+from deepagents_graph_memory.errors import GraphMemoryError, GraphMemoryValidationError
 from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.paths import (
     node_path,
@@ -119,17 +121,22 @@ class GraphMemoryBackend(BackendProtocol):
             if had_graph_prefix:
                 entries = [_prefix_file_info(entry) for entry in entries]
             return LsResult(entries=entries)
-        except (GraphMemoryPathError, GraphMemoryValidationError) as exc:
+        except GraphMemoryError as exc:
             return LsResult(error=str(exc), entries=None)
 
     def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         """Read a graph memory virtual file."""
-        if offset < 0 or limit < 0:
-            return ReadResult(error="offset and limit must be non-negative.")
+        offset, limit = max(int(offset), 0), max(int(limit), 0)
+        if limit == 0:
+            metadata = {"no_lines_requested": True} if hasattr(ReadResult, "no_lines_requested") else {}
+            return ReadResult(file_data=create_file_data(""), **metadata)
         try:
             scope_key = self._scope_key()
+            normalized = normalize_graph_path(file_path)[0].rstrip("/")
+            if normalized in {"", "/nodes", "/search"} or (normalized.startswith("/nodes/") and normalized.count("/") == 2):
+                return ReadResult(error="is_directory")
             parsed = parse_graph_path(file_path)
-            if parsed.kind in {"root", "index"}:
+            if parsed.kind == "index":
                 content = render_index()
             elif parsed.kind == "schema":
                 content = render_schema(self.store.get_schema(scope_key=scope_key))
@@ -150,28 +157,37 @@ class GraphMemoryBackend(BackendProtocol):
             else:
                 assert parsed.query is not None
                 content = render_search(parsed.query, self.store.search(parsed.query, scope_key=scope_key, limit=self.max_nodes))
-            return ReadResult(file_data=_file_data(_slice_lines(content, offset, limit)))
-        except (GraphMemoryPathError, GraphMemoryValidationError) as exc:
+            result = slice_read_response(create_file_data(content), offset, limit)
+            # Deep Agents 0.6 returns text; 0.7 returns a result with pagination metadata.
+            return ReadResult(file_data=create_file_data(result)) if isinstance(result, str) else result
+        except GraphMemoryError as exc:
             return ReadResult(error=str(exc))
 
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
-        """Search graph memory metadata for a literal pattern."""
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None) -> GrepResult:
+        """Search rendered graph files for case-sensitive literal matching lines."""
         try:
             scope_key = self._scope_key()
             base_path, had_graph_prefix = normalize_graph_path(path or "/")
+            matcher = _compile_glob(glob) if glob else None
             matches: list[GrepMatch] = []
-            static_pages = {
-                "/index.md": render_index(),
-                "/schema.md": render_schema(self.store.get_schema(scope_key=scope_key)),
-            }
-            for candidate_path, content in static_pages.items():
-                if _path_allowed(candidate_path, base_path) and _glob_allowed(candidate_path, glob) and pattern in content:
-                    matches.append({"path": _maybe_prefix(candidate_path, had_graph_prefix), "line": 1, "text": content.splitlines()[0]})
-            for item in self.store.search(pattern, scope_key=scope_key, limit=self.max_nodes).items:
-                if _path_allowed(item.path, base_path) and _glob_allowed(item.path, glob):
-                    matches.append({"path": _maybe_prefix(item.path, had_graph_prefix), "line": 1, "text": item.title})
+            # ponytail: scan rendered views; add an index only if literal grep becomes a measured bottleneck.
+            for candidate in self._candidate_files(base_path, scope_key=scope_key):
+                candidate_path = candidate["path"]
+                if matcher is not None and not matcher(_relative_path(candidate_path, base_path)):
+                    continue
+                result = self.read(candidate_path, limit=sys.maxsize)
+                if result.error is not None:
+                    return GrepResult(error=result.error)
+                assert result.file_data is not None
+                for line_number, line in enumerate(result.file_data["content"].splitlines(), 1):
+                    if pattern in line:
+                        if max_count is not None and len(matches) >= max_count:
+                            if hasattr(GrepResult, "truncated"):
+                                return GrepResult(matches=matches, truncated=True)
+                            return GrepResult(error="Grep exceeded max_count. Narrow the search or use Deep Agents 0.7 for truncation metadata.")
+                        matches.append({"path": _maybe_prefix(candidate_path, had_graph_prefix), "line": line_number, "text": line})
             return GrepResult(matches=matches)
-        except (GraphMemoryPathError, GraphMemoryValidationError) as exc:
+        except (GraphMemoryError, ValueError) as exc:
             return GrepResult(error=str(exc), matches=None)
 
     def glob(self, pattern: str, path: str | None = None) -> GlobResult:
@@ -180,13 +196,15 @@ class GraphMemoryBackend(BackendProtocol):
             scope_key = self._scope_key()
             base_path, had_graph_prefix = normalize_graph_path(path or "/")
             internal_pattern, _pattern_had_graph_prefix = _normalize_pattern(pattern)
+            matcher = _compile_glob(internal_pattern)
+            recursive = not internal_pattern.startswith("/") or "/" in internal_pattern.strip("/") or "**" in internal_pattern
             matches = []
-            for candidate in self._candidate_files(scope_key=scope_key):
-                if _path_allowed(candidate["path"], base_path) and _glob_allowed(candidate["path"], internal_pattern):
+            for candidate in self._candidate_files(base_path, scope_key=scope_key, recursive=recursive):
+                if matcher(_relative_path(candidate["path"], base_path)):
                     matches.append(_prefix_file_info(candidate) if had_graph_prefix else candidate)
             matches.sort(key=lambda item: item["path"])
             return GlobResult(matches=matches)
-        except (GraphMemoryPathError, GraphMemoryValidationError) as exc:
+        except (GraphMemoryError, ValueError) as exc:
             return GlobResult(error=str(exc), matches=None)
 
     def write(self, file_path: str, content: str) -> WriteResult:
@@ -207,7 +225,7 @@ class GraphMemoryBackend(BackendProtocol):
         """Download generated graph memory views for Deep Agents memory loading."""
         responses = []
         for path in paths:
-            result = self.read(path, offset=0, limit=1_000_000)
+            result = self.read(path, offset=0, limit=sys.maxsize)
             if result.error is not None or result.file_data is None:
                 error = "file_not_found" if result.error and "not found" in result.error.casefold() else result.error
                 responses.append(FileDownloadResponse(path=path, error=error))
@@ -607,33 +625,43 @@ class GraphMemoryBackend(BackendProtocol):
         )
 
     def _ls_internal(self, normalized: str, *, scope_key: str | None) -> list[FileInfo]:
+        normalized = normalized.rstrip("/") or "/"
         if normalized == "/":
             return [
-                {"path": "/index.md", "is_dir": False, "size": 0, "modified_at": ""},
-                {"path": "/nodes/", "is_dir": True, "size": 0, "modified_at": ""},
-                {"path": "/schema.md", "is_dir": False, "size": 0, "modified_at": ""},
-                {"path": "/search/", "is_dir": True, "size": 0, "modified_at": ""},
+                {"path": "/index.md", "is_dir": False},
+                {"path": "/nodes/", "is_dir": True},
+                {"path": "/schema.md", "is_dir": False},
+                {"path": "/search/", "is_dir": True},
             ]
-        if normalized == "/nodes/":
-            labels = self.store.list_labels(scope_key=scope_key, limit=self.max_nodes)
-            return [{"path": f"/nodes/{label}/", "is_dir": True, "size": 0, "modified_at": ""} for label in labels.items]
-        if normalized.startswith("/nodes/") and normalized.endswith("/"):
-            parts = [part for part in normalized.split("/") if part]
-            if len(parts) == 2:
-                label = validate_identifier(parts[1], field="label")
-                ids = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
-                return [{"path": node_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""} for node_id in ids.items]
-        return []
+        if normalized == "/nodes":
+            result = self.store.list_labels(scope_key=scope_key, limit=self.max_nodes)
+            entries = [{"path": f"/nodes/{label}/", "is_dir": True} for label in result.items]
+        elif normalized.startswith("/nodes/") and normalized.count("/") == 2:
+            label = validate_identifier(normalized.rsplit("/", 1)[-1], field="label")
+            result = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
+            entries = [{"path": node_path(label, node_id), "is_dir": False} for node_id in result.items]
+        else:
+            return []
+        if result.truncated:
+            raise GraphMemoryValidationError(f"Directory listing exceeds max_nodes={self.max_nodes}. Increase max_nodes or use a known node path.")
+        return sorted(entries, key=lambda entry: entry["path"])
 
-    def _candidate_files(self, *, scope_key: str | None) -> list[FileInfo]:
-        files: list[FileInfo] = [
-            {"path": "/index.md", "is_dir": False, "size": 0, "modified_at": ""},
-            {"path": "/schema.md", "is_dir": False, "size": 0, "modified_at": ""},
-        ]
-        for label in self.store.list_labels(scope_key=scope_key, limit=self.max_nodes).items:
-            for node_id in self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes).items:
-                files.append({"path": node_path(label, node_id), "is_dir": False, "size": 0, "modified_at": ""})
-        return files
+    def _candidate_files(self, path: str, *, scope_key: str | None, recursive: bool = True) -> list[FileInfo]:
+        if path.endswith(".md"):
+            parsed = parse_graph_path(path)
+            if parsed.kind == "node":
+                assert parsed.label is not None and parsed.node_id is not None
+                if self.store.get_node(parsed.label, parsed.node_id, scope_key=scope_key) is None:
+                    return []
+            return [{"path": parsed.path, "is_dir": False}]
+        files: list[FileInfo] = []
+        for entry in self._ls_internal(path, scope_key=scope_key):
+            if entry.get("is_dir"):
+                if recursive:
+                    files.extend(self._candidate_files(entry["path"], scope_key=scope_key))
+            else:
+                files.append(entry)
+        return sorted(files, key=lambda entry: entry["path"])
 
     def _scope_key(self) -> str | None:
         namespace = self.namespace
@@ -701,23 +729,6 @@ def _get_runtime_or_none() -> Any | None:
         return None
 
 
-def _file_data(content: str) -> dict[str, str]:
-    now = datetime.now(UTC).isoformat()
-    return {
-        "content": content,
-        "encoding": "utf-8",
-        "created_at": now,
-        "modified_at": now,
-    }
-
-
-def _slice_lines(content: str, offset: int, limit: int) -> str:
-    lines = content.splitlines()
-    if limit == 0:
-        return ""
-    return "\n".join(lines[offset : offset + limit])
-
-
 def _prefix_file_info(info: FileInfo) -> FileInfo:
     return {**info, "path": _maybe_prefix(info["path"], True)}
 
@@ -730,19 +741,22 @@ def _maybe_prefix(path: str, use_prefix: bool) -> str:
     return f"/graph{path}"
 
 
-def _path_allowed(candidate_path: str, base_path: str) -> bool:
-    if base_path == "/":
-        return True
-    base = base_path if base_path.endswith("/") else f"{base_path}/"
-    return candidate_path.startswith(base) or candidate_path == base_path
+def _relative_path(candidate_path: str, base_path: str) -> str:
+    if candidate_path == base_path:
+        return candidate_path.rsplit("/", 1)[-1]
+    return candidate_path.removeprefix(base_path.rstrip("/") + "/")
 
 
-def _glob_allowed(candidate_path: str, pattern: str | None) -> bool:
-    if not pattern:
-        return True
-    bare_candidate = candidate_path.lstrip("/")
-    bare_pattern = pattern.lstrip("/")
-    return fnmatch.fnmatch(candidate_path, pattern) or fnmatch.fnmatch(bare_candidate, bare_pattern)
+def _compile_glob(pattern: str) -> Callable[[str], bool]:
+    # Keep validation and POSIX matching consistent across Deep Agents versions and hosts.
+    if ".." in pattern.replace("\\", "/").split("/"):
+        raise GraphMemoryValidationError("Path traversal not allowed in glob patterns.")
+    try:
+        compiled = wcglob.compile(pattern.lstrip("/"), flags=wcglob.BRACE | wcglob.GLOBSTAR | wcglob.FORCEUNIX)
+    except Exception as exc:
+        # wcmatch exposes only private exception types for pattern expansion limits.
+        raise GraphMemoryValidationError(f"Invalid glob pattern: {exc}") from exc
+    return lambda path: bool(compiled.match(path if "/" in pattern else path.rsplit("/", 1)[-1]))
 
 
 def _normalize_pattern(pattern: str) -> tuple[str, bool]:

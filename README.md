@@ -65,8 +65,10 @@ Writes through one store are serialized and each trace or document batch commits
 
 ## Quick Start
 
+The first PyPI release is pending. Install from the public repository:
+
 ```bash
-pip install deepagents-graph-memory
+pip install "git+https://github.com/TahaK29/deepagents-graph-memory.git"
 ```
 
 Complete the one-time [full-text search setup](#full-text-search-setup) before
@@ -494,14 +496,26 @@ print(backend.read("/graph/schema.md").file_data["content"])
 print(backend.read("/graph/search/scope.md").file_data["content"])
 ```
 
-For a missing answer, read the exact known node path first. A "not found" error means that node is absent from the active scope; a returned page lets you inspect its text, provenance, and relationships. Then try `backend.recall_graph_memory("scope test", anchors=[node_path])` to start recall at that node. `ls()` helps discover paths, but its output is bounded by `max_nodes`, so an absent listing entry does not prove absence; increase `max_nodes` if needed. Inspection bypasses recall's relevance selection, while node relationships still obey `max_nodes` and `max_edges`. `read()` also accepts line `offset` and `limit`.
+For a missing answer, read the exact known node path first. A "not found" error means that node is absent from the active scope; a returned page lets you inspect its text, provenance, and relationships. Then try `backend.recall_graph_memory("scope test", anchors=[node_path])` to start recall at that node. `ls()` helps discover paths. If a directory exceeds `max_nodes`, listing and recursive file discovery return an error instead of silently omitting files; increase `max_nodes` or use a known node path. Inspection bypasses recall's relevance selection, while node relationships still obey `max_nodes` and `max_edges`. `read()` also accepts line `offset` and `limit`.
+
+`grep()` searches the rendered Markdown for case-sensitive literal text and returns
+matching lines with their line numbers. Use `/graph/search/{query}.md` or
+`recall_graph_memory()` for ranked keyword search. `glob()` matches relative to its
+`path`: `*.md` matches filenames at any depth, `/*.md` matches only the root, and
+`nodes/**/*.md` matches paths under `nodes/`. Directory paths work with or without
+a trailing slash. Reads preserve newlines and provide pagination metadata when
+the installed Deep Agents version supports it. On current Deep Agents,
+`grep(..., max_count=10)` reports `truncated=True` when more matching lines exist;
+older versions without truncation metadata return an error if the cap is exceeded.
+Async variants follow the installed Deep Agents protocol, including its supported
+arguments.
 
 ## Optional Graph-Only Mode
 
 For applications that deliberately omit filesystem tools, the existing
 `register_vgs_harness_profile(model)` helper enables graph-only behavior:
 
-- Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
+- Deep Agents default VFS tools are hidden: `ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep` (where available)
 - VGS prompt guidance is added
 - The caller passes `graph_memory_tools(graph_backend)` explicitly; the profile does not install them
 
@@ -512,6 +526,9 @@ The graph-only helper changes the profile for a model key throughout the process
 do not register it for a model used by combined-mode agents. Adding
 `graph_context_middleware()` does not undo an existing tool exclusion. Graph tools
 remain opt-in for ordinary Deep Agents applications.
+Application-supplied instructions are preserved. Older Deep Agents releases'
+automatically added filesystem guidance is removed in graph-only mode. Tool
+exclusion controls model exposure; it is not an authorization boundary.
 
 ## Architecture
 
@@ -625,9 +642,11 @@ graph_backend.recall_graph_memory("what services did incident 123 affect and wha
 
 ## Installation
 
+Until the first PyPI release, install the source package:
+
 ```bash
-pip install deepagents-graph-memory           # Core (includes LadybugDB + LangChain)
-pip install deepagents-graph-memory[test]      # + pytest, ruff
+pip install "git+https://github.com/TahaK29/deepagents-graph-memory.git"
+pip install "deepagents-graph-memory[test] @ git+https://github.com/TahaK29/deepagents-graph-memory.git"
 ```
 
 ### Full-text search setup
@@ -657,9 +676,17 @@ a missing extension raises a configuration error.
 ### Requirements
 
 - Python 3.11–3.14 (`>=3.11,<3.15`)
-- Deep Agents 0.5.2+
+- Deep Agents 0.6.10 or later (`>=0.6.10`)
 - LadybugDB via `ladybug==0.20.3`
 - An OpenSSL 3 runtime available to LadybugDB's native library; `pip` does not install it.
+
+Fresh installations can resolve the newest Deep Agents release; applications can
+also lock an older supported version. CI tests the latest release across the
+platform matrix and runs separate compatibility checks with 0.6.10, 0.6.12, and
+0.7.1. The current tested latest release is 0.7.15. Future releases still need
+those checks to pass; an open dependency range is not a compatibility guarantee.
+Versions before 0.6.10 are outside the supported range; the former 0.5.2 minimum
+lacks the harness-profile API this package uses.
 
 Use your platform's maintained OpenSSL 3 runtime. On Windows, install the matching
 architecture from a maintained distribution such as

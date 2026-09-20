@@ -95,7 +95,7 @@ def test_scoped_node_listing_filters_before_limit():
     ids = alice.ls("/nodes/service/")
 
     assert ids.error is None
-    assert ids.entries == [{"path": "/nodes/service/alice-1.md", "is_dir": False, "size": 0, "modified_at": ""}]
+    assert ids.entries == [{"path": "/nodes/service/alice-1.md", "is_dir": False}]
 
 
 def test_scoped_search_hides_other_scope_nodes():
