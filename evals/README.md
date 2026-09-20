@@ -1,6 +1,6 @@
 # Workflow evaluation
 
-Complete the [full-text search setup](../README.md#full-text-search-setup) first;
+Complete the [full-text search setup](../docs/guide.md#full-text-search-setup) first;
 LadybugDB needs the local `fts` extension. Then run the twelve deterministic
 integration cases without a model or provider credentials:
 

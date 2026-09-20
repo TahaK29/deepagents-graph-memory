@@ -40,24 +40,7 @@ For other systems, see [requirements](https://github.com/TahaK29/deepagents-grap
 pip install deepagents-graph-memory
 ```
 
-### Full-text search setup
-
-**One-time step:** run this Python snippet with an internet connection. It
-downloads and checks the add-on that lets your agent search saved findings.
-The temporary database below is only for setup; it doesn't store your project's graph.
-
-```python
-import ladybug
-
-with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as db:
-    with ladybug.Connection(db) as conn:
-        conn.execute("INSTALL fts;").close()
-        conn.execute("LOAD fts;").close()
-```
-
-Run it on the machine and under the account that will run your agent. Search
-then works without downloading the add-on again. For Docker or cloud deployment,
-follow the [setup guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#installation).
+Before using search, complete the [one-time search setup](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#full-text-search-setup).
 
 ## Quick Start
 
@@ -109,7 +92,7 @@ ordinary notes in your existing memory backend.
 - [Design and rationale](https://github.com/TahaK29/deepagents-graph-memory/blob/main/DESIGN.md): the context-graph model and implementation boundaries.
 - [Evaluations](https://github.com/TahaK29/deepagents-graph-memory/blob/main/evals/README.md): offline workflow scenarios and an optional model comparison; offline passes don't establish better model decisions.
 
-For development, install `pip install -e ".[test]"`, run the search setup above, then
+For development, install `pip install -e ".[test]"`, complete the linked search setup, then
 run `python -m pytest` and `python -m ruff check .`.
 [Report issues](https://github.com/TahaK29/deepagents-graph-memory/issues).
 

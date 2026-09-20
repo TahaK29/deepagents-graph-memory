@@ -363,7 +363,7 @@ ladybug.Database(":memory:")
 ```
 
 Provision the native `fts` extension during development setup or image build;
-see [full-text search setup](README.md#full-text-search-setup). Runtime search loads
+see [full-text search setup](docs/guide.md#full-text-search-setup). Runtime search loads
 the installed extension and must fail clearly if it is absent, without downloading
 it or substituting another search method.
 
