@@ -737,9 +737,9 @@ uploading them. It does not require the full platform test matrix. See
 
 ## Design rationale
 
-The strongest fit is a coding agent that investigates failures, tries fixes, and
-hands work to other agents. The same relationship model can support research
-experiments or incident investigations when the application records useful evidence.
+The strongest fit is an agent that needs earlier attempts and evidence to guide
+its next step, such as debugging code, running experiments, or investigating
+incidents. The application must record useful findings and their relationships.
 For a short task or a few notes, the ordinary filesystem may be enough.
 
 Neo4j's [From recall to reasoning](https://neo4j.com/blog/genai/from-recall-to-reasoning-how-context-graphs-upgrade-an-agents-brain/)
