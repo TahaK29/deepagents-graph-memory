@@ -2,7 +2,9 @@
 
 An experimental graph-backed workflow and trace store for LangChain Deep Agents. It records linked project context in LadybugDB, supports keyword search and bounded traversal, and exposes read-only Markdown views for inspection.
 
-The [workflow evaluation](evals/README.md) runs twelve offline integration scenarios and offers an opt-in, bounded graph-versus-notes model comparison. Offline passes verify retrieval mechanics, not improved model decisions.
+Created by **Pranav Bedi and Taha Khan**.
+
+The [workflow evaluation](https://github.com/TahaK29/deepagents-graph-memory/blob/main/evals/README.md) runs twelve offline integration scenarios and offers an opt-in, bounded graph-versus-notes model comparison. Offline passes verify retrieval mechanics, not improved model decisions.
 
 **Debugging a missing graph fact?** See [Inspecting the graph](#inspecting-the-graph) for a copyable Python example that needs no model or provider key.
 
@@ -13,7 +15,7 @@ The [workflow evaluation](evals/README.md) runs twelve offline integration scena
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
-  <img src="assets/vgs-graph.png" alt="Virtual Graph System: connected reasoning traces" width="50%">
+  <img src="https://raw.githubusercontent.com/TahaK29/deepagents-graph-memory/main/assets/vgs-graph.png" alt="Virtual Graph System: connected reasoning traces" width="50%">
 </p>
 
 ## Motivation
@@ -65,10 +67,10 @@ Writes through one store are serialized and each trace or document batch commits
 
 ## Quick Start
 
-The first PyPI release is pending. Install from the public repository:
+Install the package:
 
 ```bash
-pip install "git+https://github.com/TahaK29/deepagents-graph-memory.git"
+pip install deepagents-graph-memory
 ```
 
 Complete the one-time [full-text search setup](#full-text-search-setup) before
@@ -642,11 +644,10 @@ graph_backend.recall_graph_memory("what services did incident 123 affect and wha
 
 ## Installation
 
-Until the first PyPI release, install the source package:
-
 ```bash
-pip install "git+https://github.com/TahaK29/deepagents-graph-memory.git"
-pip install "deepagents-graph-memory[test] @ git+https://github.com/TahaK29/deepagents-graph-memory.git"
+pip install deepagents-graph-memory
+# Optional test tools:
+pip install "deepagents-graph-memory[test]"
 ```
 
 ### Full-text search setup
@@ -726,7 +727,7 @@ Recall uses full-text search to find seed nodes, relationship-label search for r
 
 Raw Cypher is not exposed as an agent-facing read or write path. Generated graph views are read-only projections.
 
-For the full design rationale, see [DESIGN.md](DESIGN.md).
+For the full design rationale, see [DESIGN.md](https://github.com/TahaK29/deepagents-graph-memory/blob/main/DESIGN.md).
 
 ## License
 

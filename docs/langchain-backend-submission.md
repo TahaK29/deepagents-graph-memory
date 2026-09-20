@@ -7,9 +7,9 @@ that connects Deep Agents to a database. The proposed entry describes the
 `GraphMemoryBackend` filesystem integration and its read-only Markdown views.
 Graph mutations remain controlled Python methods and tools.
 
-**Do not submit yet: the package is not published on PyPI.** The public PyPI JSON
-endpoint returned HTTP 404 for `deepagents-graph-memory` during this audit.
-The README now provides a Git installation command until the first release.
+Before submitting, verify the release on
+[PyPI](https://pypi.org/project/deepagents-graph-memory/) and install it in a fresh
+environment. The initial audit found publication was the remaining release gate.
 Maintainers decide acceptance; passing these checks cannot guarantee a merge.
 
 ## Requirements and evidence
@@ -22,7 +22,7 @@ Maintainers decide acceptance; passing these checks cannot guarantee a merge.
 | Bounded inspection | Directory limits return structured errors. Known node paths remain readable. Node views and graph recall retain their existing traversal budgets. |
 | Runtime setup | README documents LadybugDB 0.20.3, native OpenSSL 3, one-time FTS installation, persistent storage, and a writable default backend alongside `/graph/`. |
 | Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release (currently 0.7.15). Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
-| Published, installable package | **Pending.** Publish the validated wheel and source archive, then verify installation from PyPI in a fresh environment. |
+| Published, installable package | Verify the release's wheel and source archive on PyPI, then confirm installation from the public index in a fresh environment. |
 | CI for the release revision | The latest-release matrix covers Python 3.11–3.14 on Linux, Windows, and macOS, plus three older-version jobs on Linux. Require a green run containing the final audit changes before release; earlier green runs do not validate these changes. |
 
 The required filesystem methods come from the
@@ -88,5 +88,25 @@ python -m twine check dist/*
 
 Test the built wheel in a fresh environment, including graph search and reopening
 a persistent database. Publish only the tested artifacts under the maintainers'
-PyPI account. Once PyPI installation works, update the README's pending-release
-notice and Git installation examples to the released package name.
+PyPI account.
+
+## Publishing a release
+
+The manually triggered `.github/workflows/publish.yml` workflow publishes from
+`main` after the Tests workflow succeeds for that exact commit. It builds and
+validates both distributions, then uploads them using PyPI Trusted Publishing.
+Only the upload job has permission to request a publishing identity.
+
+Configure the PyPI publisher with project `deepagents-graph-memory`, owner
+`TahaK29`, repository `deepagents-graph-memory`, workflow `publish.yml`, and
+environment `pypi`. For the first release, add this as a pending publisher on the
+maintainer's PyPI account. No long-lived API token is needed.
+
+After updating the package version and waiting for its CI run, start the workflow:
+
+```bash
+gh workflow run publish.yml --ref main
+```
+
+Confirm the uploaded version and a clean public-index installation before
+announcing the release or submitting the LangChain listing.

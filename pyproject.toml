@@ -6,7 +6,7 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [
     { name = "Pranav Bedi", email = "pranavbedi80@gmail.com" },
-    { name = "Taha Khan", email = "ktaha2005.net@gmail.com " }
+    { name = "Taha Khan", email = "ktaha2005.net@gmail.com" }
 ]
 requires-python = ">=3.11,<3.15"
 keywords = ["deepagents", "langchain", "langgraph", "context", "graph", "ladybug"]
