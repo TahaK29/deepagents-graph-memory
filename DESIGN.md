@@ -362,10 +362,10 @@ should be backed by LadybugDB's in-memory database mode:
 ladybug.Database(":memory:")
 ```
 
-Provision the native `fts` extension during development setup or image build;
-see [full-text search setup](docs/guide.md#full-text-search-setup). Runtime search loads
-the installed extension and must fail clearly if it is absent, without downloading
-it or substituting another search method.
+Published wheels bundle the native `fts` extension and OpenSSL. Runtime search
+loads the bundled extension and fails clearly if it is absent, without downloading
+it or substituting another search method. Source development requires the
+[development setup](docs/guide.md#development).
 
 If LadybugDB or a required LangChain dependency is missing, fail with a clear
 configuration error when graph memory is imported. Do not silently fall back to a weaker store.

@@ -9,60 +9,41 @@ permissions:
   contents: read
 
 jobs:
-  tests:
-    runs-on: ${{ matrix.os }}
+  wheels:
+    uses: ./.github/workflows/wheels.yml
+  compatibility:
+    needs: wheels
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15]
-        python-version: ['3.11', '3.12', '3.13', '3.14']
-        deepagents: ['latest']
-        include:
-          - os: ubuntu-latest
-            python-version: '3.11'
-            deepagents: '0.6.10'
-          - os: ubuntu-latest
-            python-version: '3.11'
-            deepagents: '0.6.12'
-          - os: ubuntu-latest
-            python-version: '3.11'
-            deepagents: '0.7.1'
+        deepagents: ['0.6.10', '0.6.12', '0.7.1']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install package and test dependencies
-        run: python -m pip install --upgrade ".[test]" deepagents
-      - name: Install older supported Deep Agents
-        if: matrix.deepagents != 'latest'
-        run: python -m pip install "deepagents==${{ matrix.deepagents }}"
-      - name: Check resolved dependencies
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheels-ubuntu-latest
+          path: wheelhouse
+      - name: Test older Deep Agents with the installed wheel
         run: |
-          python -m pip show deepagents
+          python -m pip install wheelhouse/*cp311*.whl "deepagents==${{ matrix.deepagents }}" pytest pytest-asyncio
           python -m pip check
-      - name: Install Windows OpenSSL 3 runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
+          python -m pytest -q
+          python scripts/check_wheel.py
+      - name: Verify offline operation and standalone Ladybug upgrades
         run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'openssl3.exe'
-          $runtime = Join-Path $env:RUNNER_TEMP 'openssl3'
-          Invoke-WebRequest 'https://slproweb.com/download/Win64OpenSSL_Light-3_5_8.exe' -OutFile $installer
-          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '86a34bbc39269d9f40eb02e1b19ae61cf6316518844f45c153b0a7d86db9cdfc') {
-            throw 'OpenSSL installer checksum mismatch'
-          }
-          $process = Start-Process $installer -ArgumentList '/verysilent', '/sp-', '/suppressmsgboxes', '/norestart', "/DIR=$runtime", '/tasks=copytobin' -Wait -PassThru
-          if ($process.ExitCode -notin @(0, 3010)) { throw "OpenSSL installer failed: $($process.ExitCode)" }
-          # Match the installer's system-directory option for every spawned Python process.
-          Copy-Item "$runtime\bin\libssl-3-x64.dll", "$runtime\bin\libcrypto-3-x64.dll" "$env:SystemRoot\System32" -Force
-          python -c "import ladybug._lbug"
-      - name: Provision the Ladybug FTS extension
-        run: python -c "import ladybug; db = ladybug.Database(':memory:'); conn = ladybug.Connection(db); conn.execute('INSTALL fts;').close(); conn.close(); db.close()"
-      - name: Test
-        run: python -m pytest
-      - name: Lint
-        run: python -m ruff check .
-      - name: Verify FTS with native networking disabled
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo --preserve-env=HOME unshare --net "$(command -v python)" -m pytest tests/test_optional_vgs_dependency.py -k fts_without
+          sudo unshare --net "$(command -v python)" scripts/check_wheel.py
+          python -m pip install ladybug==0.20.3
+          python scripts/check_coexistence.py
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'ruff>=0.12.2,<0.16.0'
+      - run: python -m ruff check .

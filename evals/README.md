@@ -1,7 +1,7 @@
 # Workflow evaluation
 
-Complete the [full-text search setup](../docs/guide.md#full-text-search-setup) first;
-LadybugDB needs the local `fts` extension. Then run the twelve deterministic
+For source installs, complete the [development setup](../docs/guide.md#development)
+first. Published wheels include the search extension. Run the twelve deterministic
 integration cases without a model or provider credentials:
 
 ```bash

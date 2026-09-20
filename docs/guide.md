@@ -15,70 +15,39 @@
 ## Installation
 
 ```bash
-pip install deepagents-graph-memory
-# Optional test tools:
-pip install "deepagents-graph-memory[test]"
+pip install --upgrade deepagents-graph-memory
 ```
 
-### Full-text search setup
-
-LadybugDB 0.20.3 requires a separately installed `fts` extension for graph search
-and recall. A fresh `pip install` does not provide it. Satisfy the native runtime
-[requirements](#requirements) first, then run this once during
-development setup or your image build with network access, following the
-[official extension installation](https://docs.ladybugdb.com/extensions/#install-an-extension):
-
-```python
-import ladybug
-
-with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as database:
-    with ladybug.Connection(database) as connection:
-        connection.execute("INSTALL fts;").close()
-        connection.execute("LOAD fts;").close()
-```
-
-Provision for the same LadybugDB version, OS, architecture, and runtime user.
-Keep the installed extension cache available in the runtime image or volume;
-building as a different user does not make that user's cache available to your
-application. After provisioning, runtime search loads the local extension.
-The adapter does not download extensions or fall back to another search method;
-a missing extension raises a configuration error.
+Starting with 0.1.1, the published wheels include the pinned LadybugDB 0.20.3
+runtime, its FTS extension, and OpenSSL shared libraries. Importing or searching
+never downloads dependencies, installs system packages, or writes an extension
+cache into the user's home directory.
 
 ### Requirements
 
-- Python 3.11–3.14 (`>=3.11,<3.15`)
-- Deep Agents 0.6.10 or later (`>=0.6.10`)
-- LadybugDB via `ladybug==0.20.3`
-- An OpenSSL 3 runtime available to LadybugDB's native library; `pip` does not install it.
+- CPython 3.11–3.14, standard GIL builds.
+- macOS 15+ on Apple Silicon or Intel; Windows x64; Linux x64 or ARM64 with glibc 2.28+.
+- Deep Agents 0.6.10 or later. CI also checks 0.6.10, 0.6.12, and 0.7.1.
 
-Fresh installations can resolve the newest Deep Agents release; applications can
-also lock an older supported version. CI tests the latest release across the
-platform matrix and runs separate compatibility checks with 0.6.10, 0.6.12, and
-0.7.1. The current tested latest release is 0.7.15. Future releases still need
-those checks to pass; an open dependency range is not a compatibility guarantee.
-Versions before 0.6.10 are outside the supported range; the former 0.5.2 minimum
-lacks the harness-profile API this package uses.
+PyPI releases provide platform wheels, not a source archive that silently falls
+back to a native build. Windows ARM64, Alpine/musl, PyPy, and free-threaded Python
+aren't in this wheel matrix. Unsupported platforms need a separately tested
+source build. Future Deep Agents releases still need CI to establish compatibility.
 
-Use your platform's maintained OpenSSL 3 runtime. On macOS with Homebrew, run
-`brew install openssl@3` before importing Ladybug. On Windows, install the matching
-architecture from a maintained distribution such as
-[Shining Light Productions](https://slproweb.com/products/Win32OpenSSL.html).
-The native library needs `libssl-3-x64.dll` and `libcrypto-3-x64.dll` on x64;
-select the installer's option to copy DLLs to the Windows system directory.
-If your application keeps them elsewhere, register that directory with
-[`os.add_dll_directory`](https://docs.python.org/3/library/os.html#os.add_dll_directory)
-before importing Ladybug and keep the returned handle alive; each worker process
-needs the same setup. PATH alone and importing Python's `ssl` module do not satisfy
-this requirement. See [Ladybug's Windows dependency guidance](https://github.com/LadybugDB/ladybug/issues/775).
+The runtime stays pinned to 0.20.3 because 0.20.4 has a
+[Windows FTS ABI regression](https://github.com/LadybugDB/ladybug/issues/971).
+The package loads its private copy under Ladybug's canonical Python module name
+to avoid loading the native binding twice. An already imported standalone
+Ladybug 0.20.3 can be reused; a different loaded version raises an error. Keep
+applications that need conflicting Ladybug versions in separate processes.
 
-The exact pin excludes the Windows FTS ABI regression in 0.20.4 reported in
-[upstream issue #971](https://github.com/LadybugDB/ladybug/issues/971).
+### Full-text search setup
 
-The [Ladybug 0.20.3 wheels](https://pypi.org/project/ladybug/0.20.3/#files)
-include macOS 15+ (Intel and Apple Silicon), Linux, and Windows builds for
-x86-64 and ARM64. Check the available wheel for your Python version, architecture,
-and OS; wheel availability does not establish that this package passed tests on
-every combination.
+**Published wheels need no setup.** Search loads the extension shipped inside the
+package, including in offline containers. Install the wheel during your image
+build and run it on the matching platform and Python version.
+
+Only source/editable development needs the manual setup described below.
 
 ## Motivation
 
@@ -706,13 +675,39 @@ graph_backend.recall_graph_memory("what services did incident 123 affect and wha
 
 ## Development
 
+Source/editable checkouts use standalone `ladybug==0.20.3` from the test extra.
+Install OpenSSL 3 for that development environment first: on macOS,
+`brew install openssl@3`; on Linux use the distribution's OpenSSL 3 libraries;
+on Windows use a maintained distribution such as
+[Shining Light](https://slproweb.com/products/Win32OpenSSL.html) and make its DLLs
+available to Python. These are build/development requirements, not wheel-user steps.
+
+
 ```bash
 git clone https://github.com/TahaK29/deepagents-graph-memory.git
 cd deepagents-graph-memory
 pip install -e ".[test]"
+# Run the one-time development search setup below before tests.
 python3 -m pytest -q                          # Run all tests
 python3 -m ruff check .                       # Lint
 ```
+
+Run this once for the account running source tests:
+
+```python
+import ladybug
+
+with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as db:
+    with ladybug.Connection(db) as conn:
+        conn.execute("INSTALL fts;").close()
+        conn.execute("LOAD fts;").close()
+```
+
+Release wheels copy the upstream runtime and extension during the build, then
+use auditwheel (Linux), delocate (macOS), or delvewheel (Windows) to bundle and
+relink native dependencies. Run the wheel CI to validate those artifacts; a local
+`python -m build` alone doesn't perform the repair. The manual publishing workflow
+uploads the exact wheel artifacts from a successful Tests run at the same commit.
 
 ## Design
 

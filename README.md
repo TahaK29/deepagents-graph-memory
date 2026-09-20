@@ -32,15 +32,16 @@ automatically learn rules or verify that a recorded explanation is true.
 
 ## Installation
 
-Use Python **3.11–3.14**. LadybugDB also needs OpenSSL 3, a system library that
-`pip` doesn't install. On a Mac with Homebrew, run `brew install openssl@3` first.
-For other systems, see [requirements](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#requirements).
+Use Python **3.11–3.14** on macOS 15+ (Apple Silicon or Intel), Windows x64,
+or Linux x64/ARM64 with glibc 2.28+.
 
 ```bash
-pip install deepagents-graph-memory
+pip install --upgrade deepagents-graph-memory
 ```
 
-Before using search, complete the [one-time search setup](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#full-text-search-setup).
+The platform packages include LadybugDB, OpenSSL, and the search extension.
+No database server, separate OpenSSL install, or search setup command is needed.
+See [platform and development details](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#requirements).
 
 ## Quick Start
 
@@ -92,8 +93,8 @@ ordinary notes in your existing memory backend.
 - [Design and rationale](https://github.com/TahaK29/deepagents-graph-memory/blob/main/DESIGN.md): the context-graph model and implementation boundaries.
 - [Evaluations](https://github.com/TahaK29/deepagents-graph-memory/blob/main/evals/README.md): offline workflow scenarios and an optional model comparison; offline passes don't establish better model decisions.
 
-For development, install `pip install -e ".[test]"`, complete the linked search setup, then
-run `python -m pytest` and `python -m ruff check .`.
+For source development, follow the [development setup](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#development),
+then run `python -m pytest` and `python -m ruff check .`.
 [Report issues](https://github.com/TahaK29/deepagents-graph-memory/issues).
 
 ## License

@@ -1,0 +1,50 @@
+name: Build and test native wheels
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+          - os: windows-latest
+            arch: AMD64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Windows build-time OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'openssl3.exe'
+          $runtime = Join-Path $env:RUNNER_TEMP 'openssl3'
+          Invoke-WebRequest 'https://slproweb.com/download/Win64OpenSSL_Light-3_5_8.exe' -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '86a34bbc39269d9f40eb02e1b19ae61cf6316518844f45c153b0a7d86db9cdfc') { throw 'OpenSSL checksum mismatch' }
+          $process = Start-Process $installer -ArgumentList '/verysilent', '/sp-', '/suppressmsgboxes', '/norestart', "/DIR=$runtime", '/tasks=copytobin' -Wait -PassThru
+          if ($process.ExitCode -notin @(0, 3010)) { throw 'OpenSSL build dependency installation failed' }
+          "GRAPH_MEMORY_BUILD_OPENSSL=$runtime\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build, repair, and test wheels
+        uses: pypa/cibuildwheel@v3.2.0
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error

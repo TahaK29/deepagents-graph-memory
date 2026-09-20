@@ -46,7 +46,7 @@ def test_ladybug_search_uses_fts_when_available():
 
     assert result.items[0].path == "/nodes/service/auth-service.md"
     queries = "\n".join(query for query, _params in graph.queries)
-    assert "LOAD fts" in queries
+    assert any(query.startswith("LOAD ") and "fts" in query for query in queries.splitlines())
     assert "CREATE_FTS_INDEX" in queries
     assert "QUERY_FTS_INDEX" in queries
 

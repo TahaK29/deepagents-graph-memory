@@ -1,10 +1,11 @@
 """Native Ladybug export/import preserves graph content and invalid files stay intact."""
 
-import ladybug
 import pytest
 
 from deepagents_graph_memory import GraphMemoryBackend
+from deepagents_graph_memory._runtime import fts_load_query
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError
+from deepagents_graph_memory.ladybug_store import ladybug
 
 
 def test_native_export_import_preserves_graph(tmp_path):
@@ -46,7 +47,7 @@ def test_native_export_import_preserves_graph(tmp_path):
         source.close()
 
     with ladybug.Database(imported_path) as database, ladybug.Connection(database) as connection:
-        connection.execute("LOAD fts").close()
+        connection.execute(fts_load_query()).close()
         connection.execute(f"IMPORT DATABASE '{export}'").close()
 
     imported = GraphMemoryBackend.create(path=imported_path)

@@ -17,6 +17,7 @@ from threading import RLock
 from typing import Any, cast
 from weakref import WeakValueDictionary
 
+from deepagents_graph_memory._runtime import fts_load_query, load_ladybug
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError, GraphMemoryValidationError
 from deepagents_graph_memory.paths import node_path, validate_identifier, validate_node_id
 from deepagents_graph_memory.stores import (
@@ -37,9 +38,9 @@ from deepagents_graph_memory.stores import (
 )
 
 try:
-    import ladybug
+    ladybug = load_ladybug()
 except ImportError as exc:  # pragma: no cover - exercised when package is absent
-    raise ImportError("LadybugDB support requires the `ladybug` package.") from exc
+    raise ImportError(f"LadybugDB support requires the bundled runtime (or ladybug==0.20.3 for source installs): {exc}") from exc
 
 # Guard against multiple writable handles to one file in this process.
 _disk_lock = RLock()
@@ -668,13 +669,13 @@ class LadybugGraphStore:
             return True
         validate_identifier(label, field="label")
         try:
-            self._query("LOAD fts;", {})
+            self._query(fts_load_query(), {})
         except GraphMemoryConfigurationError as exc:
             message = str(exc).casefold()
             if "already" not in message and "loaded" not in message:
                 msg = (
                     "LadybugDB full-text search requires the `fts` extension, but loading it failed. "
-                    "Provision it with `INSTALL fts;` using LadybugDB before running the agent; runtime search does not download extensions."
+                    "Reinstall the platform wheel. Source/editable installs need development setup from docs/guide.md."
                 )
                 raise GraphMemoryConfigurationError(msg) from exc
         try:

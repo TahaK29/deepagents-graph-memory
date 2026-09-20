@@ -1,9 +1,10 @@
 [project]
 name = "deepagents-graph-memory"
-version = "0.1.0"
+version = "0.1.1"
 description = "Graph-backed context scratchpad for LangChain Deep Agents."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE", "licenses/*"]
 authors = [
     { name = "Pranav Bedi", email = "pranavbedi80@gmail.com" },
     { name = "Taha Khan", email = "ktaha2005.net@gmail.com" }
@@ -13,7 +14,6 @@ keywords = ["deepagents", "langchain", "langgraph", "context", "graph", "ladybug
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -23,13 +23,13 @@ classifiers = [
 ]
 dependencies = [
     "deepagents>=0.6.10",
-    "ladybug==0.20.3",
     "langchain-core>=1.4.0,<2.0.0",
     "wcmatch>=10.1",
 ]
 
 [project.optional-dependencies]
 test = [
+    "ladybug==0.20.3",
     "pytest>=8.0.0",
     "pytest-asyncio>=1.0.0",
     "ruff>=0.12.2,<0.16.0",
@@ -41,7 +41,7 @@ Documentation = "https://github.com/TahaK29/deepagents-graph-memory#readme"
 Issues = "https://github.com/TahaK29/deepagents-graph-memory/issues"
 
 [build-system]
-requires = ["setuptools>=73.0.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel", "ladybug==0.20.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
@@ -73,3 +73,26 @@ known-first-party = ["deepagents_graph_memory"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux* *-win32"
+test-requires = ["pytest>=8", "pytest-asyncio>=1"]
+test-command = [
+    "python {project}/scripts/check_wheel.py",
+    "python -m pytest -q {project}/tests",
+]
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "bash {project}/scripts/build_openssl.sh"
+environment = { LD_LIBRARY_PATH = "/opt/graph-memory-openssl/lib:$LD_LIBRARY_PATH" }
+
+[tool.cibuildwheel.macos]
+before-all = "brew install openssl@3"
+environment = { MACOSX_DEPLOYMENT_TARGET = "15.0" }
+
+[tool.cibuildwheel.windows]
+before-build = "pip install delvewheel"
+repair-wheel-command = 'delvewheel repair --add-path "%GRAPH_MEMORY_BUILD_OPENSSL%" -w {dest_dir} {wheel}'
