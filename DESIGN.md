@@ -129,11 +129,6 @@ an in-memory replacement. The application owns storage provisioning, permissions
 and volume retention; no provider SDK, blob snapshot, or cloud deployment API is
 part of this feature.
 
-Kuzu 0.11.3 files require native export and import into a fresh LadybugDB file;
-renaming the file is not conversion. Keep the source backup and validate the
-new graph before switching application paths. See the
-[migration procedure](README.md#existing-kuzu-databases).
-
 One process owns each writable database. Parent and subagents share one store;
 closing it affects all backends using it. Shutdown closes the connection before
 the database and releases the file lock. Replacement processes must wait for the

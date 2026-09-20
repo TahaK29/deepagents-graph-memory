@@ -4,9 +4,9 @@
 
 **Goal:** Make bounded recall useful on long-running tasks, make retries safe, and preserve the evidence needed to revisit decisions.
 
-**Architecture:** Extend the existing in-memory Kuzu store, trace tool, recall path, and VGS prompt. Keep model judgment in the agent. Store explicit relationships and derive review status when reading instead of running background jobs or maintaining a second truth database.
+**Architecture:** Extend the existing in-memory LadybugDB store, trace tool, recall path, and VGS prompt. Keep model judgment in the agent. Store explicit relationships and derive review status when reading instead of running background jobs or maintaining a second truth database.
 
-**Tech stack:** Python 3.11+, Kuzu, existing Deep Agents/LangChain/LangGraph dependencies, pytest, Ruff.
+**Tech stack:** Python 3.11+, LadybugDB, existing Deep Agents/LangChain/LangGraph dependencies, pytest, Ruff.
 
 **Spec:** DESIGN.md and the approved discussion about the six gaps. The requirements and acceptance checks below define the implementation scope.
 
@@ -35,7 +35,7 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 ## Task 1: Bounded recall that reaches the latest relevant findings
 
-**Files:** stores.py, kuzu_store.py, recall.py, tests/test_subject_findings.py, README.md.
+**Files:** stores.py, ladybug_store.py, recall.py, tests/test_subject_findings.py, README.md.
 
 **Problem reproduced:** A 16-observation state history anchored at its first failure omits the newest passing observation with max_nodes=6. An incomplete warning appears, but the answer is not useful. Display sorting occurs after the candidate budget has already excluded the update.
 
@@ -131,7 +131,7 @@ Tasks 2 and 5 share payload fingerprinting; task 5 must extend the fingerprint. 
 
 ## Task 4: Decisions whose supporting findings changed
 
-**Files:** backend.py, tools.py, recall.py, kuzu_store.py/stores.py only for a focused scoped lookup if necessary, vgs.py, tests/test_subject_findings.py, README.md.
+**Files:** backend.py, tools.py, recall.py, ladybug_store.py/stores.py only for a focused scoped lookup if necessary, vgs.py, tests/test_subject_findings.py, README.md.
 
 **Implementation:**
 

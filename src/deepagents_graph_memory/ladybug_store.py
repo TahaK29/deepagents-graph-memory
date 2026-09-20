@@ -242,8 +242,6 @@ class LadybugGraphStore:
             database = ladybug.Database(path)
         except Exception as exc:
             msg = f"Could not open LadybugDB graph at path {path!r}: {exc}"
-            if "not a valid Lbug database file" in str(exc):
-                msg += " Legacy Kuzu database files require migration to a new LadybugDB file; see the README migration instructions."
             raise GraphMemoryConfigurationError(msg) from exc
         try:
             return cls(_LadybugGraph(database), database=database)

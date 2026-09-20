@@ -87,20 +87,12 @@ def test_importing_backend_requires_ladybug():
     assert "LadybugDB support requires" in result.stdout
 
 
-def test_ladybug_fts_without_kuzu_or_python_network(tmp_path):
+def test_ladybug_fts_without_python_network(tmp_path):
     """Exercise provisioned FTS; Linux CI also runs this in a network namespace."""
     code = textwrap.dedent(
         """
-        import importlib.abc
         import socket
         import sys
-
-        class BlockKuzu(importlib.abc.MetaPathFinder):
-            def find_spec(self, fullname, path=None, target=None):
-                if fullname == "kuzu" or fullname.startswith("kuzu."):
-                    raise AssertionError(f"unexpected Kuzu import: {fullname}")
-
-        sys.meta_path.insert(0, BlockKuzu())
 
         def block_network(event, args):
             if event in {"socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto"}:
@@ -141,7 +133,6 @@ def test_ladybug_fts_without_kuzu_or_python_network(tmp_path):
         assert not reopened.store.search("cobalt", scope_key="project").items
         reopened.close()
         assert any("QUERY_FTS_INDEX" in query for query in queries)
-        assert not any(name == "kuzu" or name.startswith("kuzu.") for name in sys.modules)
         print("Ladybug FTS insert/update/reopen passed")
         """
     )

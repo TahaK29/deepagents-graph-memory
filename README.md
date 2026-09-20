@@ -204,48 +204,6 @@ The path names a database file, not a directory or a URL such as `s3://...`.
 Keep its containing directory on durable storage, including LadybugDB's associated
 files. Reuse the same namespace when resuming the same project.
 
-### Existing Kuzu databases
-
-LadybugDB 0.20.3 rejects Kuzu 0.11.3 database files. Changing `.kuzu` to `.lbdb`
-does not convert the format. Stop the old database owner and back up its database
-and associated files before migration; keep that backup until verification ends.
-
-Export using a separate environment with `kuzu==0.11.3` installed. Replace these
-example paths with your source file and a new export directory:
-
-```python
-import kuzu
-
-with kuzu.Database("/data/project.kuzu", read_only=True) as database:
-    with kuzu.Connection(database) as connection:
-        connection.execute("EXPORT DATABASE '/data/project-export';").close()
-```
-
-In the LadybugDB environment, complete [FTS setup](#full-text-search-setup), then
-import into a new, empty database. Use the native default memory configuration
-for this import; a 64 MiB buffer failed in the migration probe.
-
-```python
-from pathlib import Path
-
-import ladybug
-
-new_path = Path("/data/project.lbdb")
-if new_path.exists():
-    raise FileExistsError(f"Choose a new database path: {new_path}")
-
-with ladybug.Database(str(new_path)) as database:
-    with ladybug.Connection(database) as connection:
-        connection.execute("LOAD fts;").close()
-        connection.execute("IMPORT DATABASE '/data/project-export';").close()
-```
-
-Import does not roll back all changes on failure. Keep the original untouched;
-if an import fails, retry with another fresh target after fixing the cause.
-Before pointing your application at the new file, compare node and relationship
-counts, properties and provenance, namespace-scoped reads, and representative
-search and recall results. Keep using the same application namespace.
-
 ### FastAPI and containers
 
 FastAPI is one lifecycle example; other applications use the same `create(path=...)`

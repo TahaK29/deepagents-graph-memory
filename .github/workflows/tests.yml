@@ -23,8 +23,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package and test dependencies
         run: python -m pip install ".[test]"
-      - name: Verify Ladybug is the only installed graph engine
-        run: python -c "import importlib.util; import ladybug; assert importlib.util.find_spec('kuzu') is None"
       - name: Install Windows OpenSSL 3 runtime
         if: runner.os == 'Windows'
         shell: pwsh
@@ -50,17 +48,3 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: sudo --preserve-env=HOME unshare --net "$(command -v python)" -m pytest tests/test_optional_vgs_dependency.py -k fts_without
-
-  legacy-migration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install package and legacy migration test engine
-        run: python -m pip install ".[test]" "kuzu==0.11.3"
-      - name: Provision the Ladybug FTS extension
-        run: python -c "import ladybug; db = ladybug.Database(':memory:'); conn = ladybug.Connection(db); conn.execute('INSTALL fts;').close(); conn.close(); db.close()"
-      - name: Test legacy file migration
-        run: python -m pytest tests/test_legacy_migration.py
