@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -398,15 +398,13 @@ class LadybugGraphStore:
                         if len(collected) >= max_edges:
                             truncated_edges = True
                             continue
-                        collected[key] = edge
-                    for candidate in ((edge.source_label, edge.source_id), (edge.target_label, edge.target_id)):
-                        if candidate in seen_nodes:
-                            continue
-                        if len(seen_nodes) >= max_nodes:
+                        new_nodes = {(edge.source_label, edge.source_id), (edge.target_label, edge.target_id)} - seen_nodes
+                        if len(seen_nodes) + len(new_nodes) > max_nodes:
                             truncated_nodes = True
                             continue
-                        seen_nodes.add(candidate)
-                        next_frontier.add(candidate)
+                        collected[key] = edge
+                        seen_nodes.update(new_nodes)
+                        next_frontier.update(new_nodes)
             frontier = next_frontier
             if not frontier:
                 break
@@ -545,8 +543,8 @@ class LadybugGraphStore:
     def add_graph_documents(self, documents: Sequence[Any], *, scope_key: str | None = None) -> None:
         """Add graph documents through validated scoped writes."""
         for document in documents:
-            nodes = getattr(document, "nodes", None)
-            relationships = getattr(document, "relationships", None)
+            nodes = _document_field(document, "nodes")
+            relationships = _document_field(document, "relationships")
             if (
                 not isinstance(nodes, Sequence)
                 or isinstance(nodes, str | bytes)
@@ -559,15 +557,15 @@ class LadybugGraphStore:
                 label, node_id, properties = _document_node(node, scope_key)
                 self.add_node(label, node_id, properties=properties, scope_key=scope_key)
             for relationship in relationships:
-                source_label, source_id, _ = _document_node(getattr(relationship, "source", None), scope_key)
-                target_label, target_id, _ = _document_node(getattr(relationship, "target", None), scope_key)
+                source_label, source_id, _ = _document_node(_document_field(relationship, "source"), scope_key)
+                target_label, target_id, _ = _document_node(_document_field(relationship, "target"), scope_key)
                 self.add_edge(
                     source_label,
                     source_id,
-                    getattr(relationship, "type", None),
+                    _document_field(relationship, "type"),
                     target_label,
                     target_id,
-                    properties=_with_scope(getattr(relationship, "properties", None), scope_key),
+                    properties=_with_scope(_document_field(relationship, "properties"), scope_key),
                     scope_key=scope_key,
                 )
 
@@ -647,8 +645,12 @@ class LadybugGraphStore:
                 f"""
                 MATCH (source)-[r:{relationship}]->(target)
                 WHERE {scope_where}
-                RETURN source, r, target
+                WITH source, min(target.pk) AS target_pk
+                ORDER BY source.pk
                 LIMIT {int(limit) + 1}
+                MATCH (source)-[r:{relationship}]->(target)
+                WHERE target.pk = target_pk
+                RETURN source, r, target
                 """,
                 params,
             )
@@ -823,9 +825,13 @@ def _with_scope(properties: dict[str, Any] | None, scope_key: str | None) -> Pro
 
 
 def _document_node(value: Any, scope_key: str | None) -> tuple[str, str, Properties]:
-    label = validate_identifier(getattr(value, "type", None), field="label")
-    node_id = validate_node_id(getattr(value, "id", None))
-    return label, node_id, _with_scope(getattr(value, "properties", None), scope_key)
+    label = validate_identifier(_document_field(value, "type"), field="label")
+    node_id = validate_node_id(_document_field(value, "id"))
+    return label, node_id, _with_scope(_document_field(value, "properties"), scope_key)
+
+
+def _document_field(value: Any, name: str) -> Any:
+    return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
 
 
 def _scoped_properties(properties: dict[str, Any] | None, scope_key: str | None) -> Properties:

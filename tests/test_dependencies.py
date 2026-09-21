@@ -145,3 +145,36 @@ def test_component_owner_is_reviewed_when_trace_node_does_not_fit():
     trace(backend, "decision", "disable", depends_on=["premise"])
     result = backend.recall_graph_memory("disable", anchors=["/graph/nodes/Outcome/decision-outcome.md"], max_nodes=1, max_edges=1, token_budget=1)
     assert result.startswith("Dependency status unknown")
+
+
+@pytest.mark.parametrize("intermediate", ["a", "z"])
+def test_dependency_review_revisits_shorter_paths_regardless_of_trace_name(intermediate):
+    backend = GraphMemoryBackend.create()
+    try:
+        trace(backend, "premise", "failed", subject="status", finding_type="state", observed_at="2026-09-19T10:00:00Z", evidence=["old"])
+        trace(backend, "b", "mitigate", depends_on=["premise"])
+        trace(backend, intermediate, "notify", depends_on=["b"])
+        trace(backend, "root", "hold release", depends_on=[intermediate, "b"])
+        trace(
+            backend,
+            "replacement",
+            "passed",
+            subject="status",
+            finding_type="state",
+            observed_at="2026-09-19T11:00:00Z",
+            evidence=["new"],
+            supersedes=["premise"],
+        )
+        content = backend.recall_graph_memory(
+            "nonmatching",
+            anchors=["/graph/nodes/Trace/root.md"],
+            mode="local",
+            max_depth=2,
+            max_nodes=100,
+            max_edges=200,
+            token_budget=20000,
+        )
+        assert "Trace root needs recheck" in content
+        assert "Trace root: dependency status unknown" not in content
+    finally:
+        backend.close()

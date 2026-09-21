@@ -37,6 +37,30 @@ def test_graph_memory_tools_write_safe_facts():
     assert backend.read("/nodes/service/langfuse.md").error is None
 
 
+def test_graph_document_tool_accepts_json_and_rolls_back_invalid_batches():
+    backend = GraphMemoryBackend.create(namespace="project")
+    tool = next(tool for tool in graph_memory_tools(backend, include_low_level_writes=True) if tool.name == "add_graph_documents")
+    source = {"type": "File", "id": "source", "properties": {"name": "source.py"}}
+    target = {"type": "File", "id": "target", "properties": {"name": "target.py"}}
+    document = {
+        "nodes": [source, target],
+        "relationships": [{"source": source, "target": target, "type": "DEPENDS_ON", "properties": {"reason": "import"}}],
+    }
+    try:
+        assert tool.invoke({"documents": [document]}).startswith("Added")
+        assert backend.store.get_node("File", "source", scope_key="project").properties["name"] == "source.py"
+        assert backend.store.get_node("File", "source") is None
+        edge = backend.store.get_neighbors("File", "source", scope_key="project").edges[0]
+        assert (edge.source_id, edge.relationship, edge.target_id, edge.properties["reason"]) == ("source", "DEPENDS_ON", "target", "import")
+
+        for invalid in ({"type": "File", "id": "bad/id"}, {"type": "File", "id": "bad", "properties": {"scope_key": "other"}}):
+            batch = [{"nodes": [{"type": "File", "id": "partial"}], "relationships": []}, {"nodes": [invalid], "relationships": []}]
+            assert tool.invoke({"documents": batch}).startswith("Error:")
+            assert backend.store.list_node_ids("File", scope_key="project").items == ["source", "target"]
+    finally:
+        backend.close()
+
+
 def test_graph_memory_tools_default_to_structured_trace_writes():
     backend = GraphMemoryBackend.create()
     tools = {tool.name: tool for tool in graph_memory_tools(backend)}

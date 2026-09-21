@@ -2,6 +2,8 @@
 # - Cases: matching items or relationships, aliases, starting from a known path, and following several connections;
 #        stopping at relevance or size limits, keeping scopes separate, and offering recall as a tool.
 
+import pytest
+
 from deepagents_graph_memory.backend import GraphMemoryBackend
 from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.tools import graph_memory_tools
@@ -97,6 +99,22 @@ def test_recall_stops_at_edge_budget():
     content = backend.recall_graph_memory("langfuse depend", max_edges=1)
 
     assert "Results truncated for edges" in content
+
+
+@pytest.mark.parametrize("max_nodes", [2, 3])
+def test_recall_bounds_endpoints_across_multiple_seeds(max_nodes):
+    backend = GraphMemoryBackend.create()
+    try:
+        backend.add_graph_edge("File", "a", "LINKS", "File", "c")
+        backend.add_graph_node("File", "b")
+        content = backend.recall_graph_memory("nonmatching", anchors=["/graph/nodes/File/a.md", "/graph/nodes/File/b.md"], max_nodes=max_nodes)
+        assert "/graph/nodes/File/a.md" in content
+        assert "/graph/nodes/File/b.md" in content
+        assert ("/graph/nodes/File/c.md" in content) == (max_nodes == 3)
+        assert ("LINKS" in content) == (max_nodes == 3)
+        assert ("Results truncated for nodes" in content) == (max_nodes == 2)
+    finally:
+        backend.close()
 
 
 def test_recall_stops_at_token_budget():
@@ -221,3 +239,37 @@ def test_low_level_trace_fields_do_not_imply_reasoning_links():
     content = backend.recall_graph_memory("check", anchors=["/graph/nodes/Trace/loose.md"])
     assert '"outcome": "passed"' in content
     assert "LED_TO" not in content and "JUSTIFIED" not in content and "PRODUCED" not in content
+
+
+@pytest.mark.parametrize("trace_id", ["path/to/trace", "", "x" * 257])
+def test_recall_ignores_invalid_trace_ids_in_generic_node_metadata(trace_id):
+    backend = GraphMemoryBackend.create()
+    try:
+        backend.add_graph_node("Artifact", "foreign", {"trace_id": trace_id})
+        backend.add_graph_edge("Artifact", "entry", "LINKS", "Artifact", "foreign")
+        for node_id in ("foreign", "entry"):
+            content = backend.recall_graph_memory("nonmatching", anchors=[f"/graph/nodes/Artifact/{node_id}.md"])
+            assert "/graph/nodes/Artifact/foreign.md" in content
+        assert backend.store.get_node("Artifact", "foreign").properties["trace_id"] == trace_id
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("max_nodes", [100, 2])
+def test_explicit_anchors_use_node_budget_and_report_omissions(max_nodes):
+    backend = GraphMemoryBackend.create()
+    try:
+        anchors = []
+        for index in range(21):
+            backend.add_graph_node("Task", f"anchor{index:02d}")
+            anchors.append(f"/graph/nodes/Task/anchor{index:02d}.md")
+        content = backend.recall_graph_memory("nonmatching", anchors=anchors, max_nodes=max_nodes, token_budget=10000)
+        returned = {path for path in anchors if f"]({path})" in content}
+        assert returned == set(anchors[:max_nodes])
+        if max_nodes < len(anchors):
+            assert "Results truncated for nodes" in content
+            assert "Anchor omitted" in content and anchors[-1] in content
+        else:
+            assert "truncat" not in content.lower()
+    finally:
+        backend.close()

@@ -60,3 +60,22 @@ def test_ladybug_add_node_writes_search_text():
     merge_params = [params for query, params in graph.queries if "MERGE (n:service" in query][0]
     assert "login service" in merge_params["search_text"]
     assert "Handles login." in merge_params["search_text"]
+
+
+def test_relationship_search_limits_distinct_sources():
+    store = LadybugGraphStore.memory()
+    try:
+        for index in range(4):
+            store.add_edge("File", "many", "DEPENDS_ON", "File", f"dep{index}", properties={"reason": "build input"})
+        store.add_edge("File", "other", "DEPENDS_ON", "File", "last", properties={"reason": "runtime input"})
+        store.add_edge("File", "hidden", "DEPENDS_ON", "File", "secret", scope_key="other")
+
+        result = store.search("depends", limit=2)
+        assert {item.path for item in result.items} == {"/nodes/File/many.md", "/nodes/File/other.md"}
+        assert not result.truncated
+        assert all("DEPENDS_ON" in item.title and "input" in item.text for item in result.items)
+        limited = store.search("depends", limit=1)
+        assert len(limited.items) == 1
+        assert limited.truncated
+    finally:
+        store.close()

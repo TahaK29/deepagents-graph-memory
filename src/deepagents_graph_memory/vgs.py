@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -209,26 +210,19 @@ def _apply_vgs_system_text(system_message: SystemMessage | None, text: str, stri
 
 def _remove_legacy_filesystem_guidance(content_blocks: list[Any]) -> list[Any]:
     # Deep Agents 0.7 puts this guidance in tool descriptions, not system prompts.
-    if not getattr(filesystem, "FILESYSTEM_SYSTEM_PROMPT", None):
+    default = getattr(filesystem, "FILESYSTEM_SYSTEM_PROMPT", None)
+    if not default:
         return content_blocks
-    execution_prompt = getattr(filesystem, "EXECUTION_SYSTEM_PROMPT", "")
+    template = getattr(filesystem, "_FILESYSTEM_SYSTEM_PROMPT_TEMPLATE", default)
+    # Match upstream prose exactly, including its configurable artifact directory.
+    pattern = re.escape(template).replace(re.escape("{large_tool_results_prefix}"), r"[^`\n]+")
     result = []
     for block in content_blocks:
         text = block.get("text") if isinstance(block, dict) and block.get("type") == "text" else None
         if not isinstance(text, str):
             result.append(block)
             continue
-        stripped = text.strip()
-        _, separator, execution = stripped.partition("## Execute Tool `execute`")
-        execution = separator + execution
-        if not (
-            stripped.startswith("## Following Conventions")
-            and "## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`" in stripped
-            and "## Large Tool Results" in stripped
-            and "Offloaded tool results are stored under " in stripped
-            and (not execution or execution == execution_prompt)
-        ):
-            result.append(block)
-        elif execution:
-            result.append({**block, "text": text[: len(text) - len(text.lstrip())] + execution})
+        stripped = re.sub(pattern, "", text, count=1)
+        if stripped.strip() or stripped == text:
+            result.append({**block, "text": stripped})
     return result

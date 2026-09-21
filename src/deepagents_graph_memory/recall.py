@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from deepagents_graph_memory.errors import GraphMemoryPathError, GraphMemoryValidationError
-from deepagents_graph_memory.paths import node_path, parse_graph_path
+from deepagents_graph_memory.paths import node_path, parse_graph_path, validate_node_id
 from deepagents_graph_memory.stores import GraphEdge, GraphNode, GraphStoreAdapter, JsonValue, finding_observed_timestamp, valid_finding_link
 
 RecallMode = Literal["auto", "local", "deep"]
@@ -101,7 +101,7 @@ def recall_graph_memory(
     terms = _query_terms(query)
     state = _RecallState(nodes={}, edges={})
     state.explicit_anchors = {ref for anchor in anchors if (ref := _seed_from_anchor(anchor)) is not None}
-    seeds = _find_seed_nodes(store, query, terms, anchors=anchors, scope_key=scope_key, limit=min(max_nodes, 20), state=state)
+    seeds = _find_seed_nodes(store, query, terms, anchors=anchors, scope_key=scope_key, limit=max_nodes, state=state)
     if not seeds:
         return _render_recall(query, state, token_budget=token_budget)
 
@@ -159,9 +159,6 @@ def recall_graph_memory(
                 include_edge = mode in {"deep", "local"} or depth == 1 or edge_score > 0
                 if not include_edge:
                     continue
-                _add_edge(state, edge, distance=depth, score=edge_score, max_edges=max_edges)
-                if edge_score > 0:
-                    layer_added_relevant_edge = True
                 for neighbor in _edge_neighbors(edge, ref):
                     node = store.get_node(neighbor.label, neighbor.node_id, scope_key=scope_key)
                     if node is None:
@@ -172,6 +169,9 @@ def recall_graph_memory(
                     if should_expand and neighbor not in seen_frontier:
                         next_frontier.append(neighbor)
                         seen_frontier.add(neighbor)
+                _add_edge(state, edge, distance=depth, score=edge_score, max_edges=max_edges)
+                if edge_score > 0:
+                    layer_added_relevant_edge = True
 
         if state.truncated_edges or state.truncated_nodes:
             state.stopped_reason = "Stopped at the configured node or edge safety budget."
@@ -207,17 +207,12 @@ def _review_dependencies(
     max_edges: int,
 ) -> None:
     """Flag conclusions that rely on changed premises using focused, bounded graph links."""
-    roots = list(
-        dict.fromkeys(
-            _NodeRef("Trace", trace_id)
-            for ref, record in state.nodes.items()
-            if (trace_id := ref.node_id if ref.label == "Trace" else record.node.properties.get("trace_id")) is not None and isinstance(trace_id, str)
-        )
-    )
+    roots = list(dict.fromkeys(_NodeRef("Trace", trace_id) for record in state.nodes.values() if (trace_id := _trace_id(record.node)) is not None))
     notices: list[str] = []
     unknown_roots: list[str] = []
     for root in roots:
-        inspected: set[str] = set()
+        inspected: dict[str, int] = {}
+        depth_limited: set[str] = set()
         read_nodes: set[str] = set()
         used_edges = 0
         unknown = False
@@ -228,7 +223,8 @@ def _review_dependencies(
             trace_id: str,
             path: set[str],
             depth: int,
-            inspected: set[str] = inspected,
+            inspected: dict[str, int] = inspected,
+            depth_limited: set[str] = depth_limited,
             read_nodes: set[str] = read_nodes,
             changes: set[tuple[str, str, str]] = changes,
         ) -> None:
@@ -236,7 +232,7 @@ def _review_dependencies(
             if trace_id in path:
                 unknown = True
                 return
-            if trace_id in inspected:
+            if inspected.get(trace_id, max_depth + 1) <= depth:
                 return
             if len(read_nodes) >= max_nodes and trace_id not in read_nodes:
                 unknown = True
@@ -245,13 +241,14 @@ def _review_dependencies(
             if trace is None:
                 unknown = True
                 return
-            inspected.add(trace_id)
+            inspected[trace_id] = depth
             read_nodes.add(trace_id)
             if depth >= max_depth:
                 if store.list_trace_edges(trace_id, "BASED_ON", scope_key=scope_key, limit=1).items:
                     has_dependencies = True
-                    unknown = True
+                    depth_limited.add(trace_id)
                 return
+            depth_limited.discard(trace_id)
             remaining = max_edges - used_edges
             if remaining <= 0:
                 unknown = True
@@ -334,11 +331,21 @@ def _review_dependencies(
         if changes:
             details = ", ".join(f"{old} updated by {new} via {relationship}" for old, new, relationship in sorted(changes))
             notices.append(f"Trace {root.node_id} needs recheck: supporting premise changed ({details}). The conclusion remains recorded.")
-        if has_dependencies and unknown:
+        if has_dependencies and (unknown or depth_limited):
             state.dependency_unknown = True
             unknown_roots.append(root.node_id)
     state.dependency_notices = notices
     state.dependency_unknown_roots = unknown_roots
+
+
+def _trace_id(node: GraphNode) -> str | None:
+    value = node.id if node.label == "Trace" else node.properties.get("trace_id")
+    if isinstance(value, str):
+        try:
+            return validate_node_id(value)
+        except GraphMemoryValidationError:
+            pass
+    return None
 
 
 def _expand_subject_findings(
@@ -362,8 +369,8 @@ def _expand_subject_findings(
             subjects.add(seed.node_id)
             continue
         trace = node if seed.label == "Trace" else None
-        trace_id = node.properties.get("trace_id")
-        if trace is None and isinstance(trace_id, str):
+        trace_id = _trace_id(node)
+        if trace is None and trace_id is not None:
             trace = store.get_node("Trace", trace_id, scope_key=scope_key)
         if trace is None and seed.label in {"Artifact", "Evidence", "EvidenceSource"}:
             neighbors = store.get_neighbors(seed.label, seed.node_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max_edges)
@@ -374,8 +381,8 @@ def _expand_subject_findings(
                         connected = store.get_node(ref.label, ref.node_id, scope_key=scope_key)
                         if connected is None:
                             continue
-                        connected_trace_id = connected.id if connected.label == "Trace" else connected.properties.get("trace_id")
-                        if isinstance(connected_trace_id, str):
+                        connected_trace_id = _trace_id(connected)
+                        if connected_trace_id is not None:
                             connected_trace = store.get_node("Trace", connected_trace_id, scope_key=scope_key)
                             connected_subject = connected_trace.properties.get("subject") if connected_trace is not None else None
                             if isinstance(connected_subject, str):
@@ -421,7 +428,7 @@ def _expand_subject_findings(
             trace_links = store.get_neighbors("Trace", trace_id, scope_key=scope_key, max_nodes=max_nodes, max_edges=max(max_edges, 100))
             if trace_links is None:
                 continue
-            if trace_links.truncated_edges:
+            if trace_links.truncated_nodes or trace_links.truncated_edges:
                 state.related_incomplete = True
             for link in trace_links.edges:
                 if link.relationship in {"SUPERSEDES", "RESOLVES"} and link.source_id == trace_id:
@@ -451,10 +458,17 @@ def _find_seed_nodes(
             continue
         if store.get_node(ref.label, ref.node_id, scope_key=scope_key) is None:
             continue
-        seeds.append(ref)
         seen.add(ref)
         if len(seeds) >= limit:
-            return seeds
+            state.truncated_nodes = True
+            if state.omitted_anchors is None:
+                state.omitted_anchors = []
+            state.omitted_anchors.append(ref)
+        else:
+            seeds.append(ref)
+    limit = min(limit, 20)
+    if len(seeds) >= limit:
+        return seeds
     for search_query in _search_queries(query, terms, anchors):
         result = store.search(search_query, scope_key=scope_key, limit=limit)
         state.search_truncated = state.search_truncated or result.truncated
@@ -514,6 +528,9 @@ def _add_node(state: _RecallState, node: GraphNode, *, distance: int, score: int
 
 
 def _add_edge(state: _RecallState, edge: GraphEdge, *, distance: int, score: int, max_edges: int) -> None:
+    if _NodeRef(edge.source_label, edge.source_id) not in state.nodes or _NodeRef(edge.target_label, edge.target_id) not in state.nodes:
+        state.truncated_nodes = True
+        return
     key = (edge.source_label, edge.source_id, edge.relationship, edge.target_label, edge.target_id)
     existing = state.edges.get(key)
     if existing is None:
@@ -597,12 +614,12 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
         lines.append("No matching graph memory found.")
         return "\n".join(lines).rstrip() + "\n"
 
+    for ref in state.omitted_anchors or []:
+        path = _prefixed(node_path(ref.label, ref.node_id))
+        lines.append(f"Anchor omitted from bounded history: `{path}`. Read it directly for earlier context.")
+    if state.omitted_anchors:
+        lines.append("")
     if state.related_findings:
-        for ref in state.omitted_anchors or []:
-            path = _prefixed(node_path(ref.label, ref.node_id))
-            lines.append(f"Anchor omitted from bounded history: `{path}`. Read it directly for earlier context.")
-        if state.omitted_anchors:
-            lines.append("")
         lines.extend(_finding_history(state))
 
     covered_traces = {

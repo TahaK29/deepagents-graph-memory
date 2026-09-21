@@ -4,6 +4,7 @@
 
 import asyncio
 
+import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse, ToolCallRequest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -94,6 +95,45 @@ def test_vgs_preserves_custom_filesystem_and_execute_instructions():
     assert APP_FILESYSTEM_PROMPT in system_prompt
     assert APP_EXECUTION_PROMPT in system_prompt
     assert "## Virtual Graph System (VGS)" in system_prompt
+
+
+@pytest.mark.parametrize("prefix", ["/large_tool_results", "/artifacts/large_tool_results"])
+@pytest.mark.parametrize("position", ["before_execute", "after_execute", "no_addition"])
+def test_vgs_preserves_additions_to_legacy_filesystem_prompt(monkeypatch, prefix, position):
+    # Current Deep Agents no longer supplies these constants; older CI versions
+    # exercise their actual template through the same public middleware calls.
+    template = getattr(
+        vgs.filesystem,
+        "_FILESYSTEM_SYSTEM_PROMPT_TEMPLATE",
+        "## Following Conventions\n"
+        "## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`\n"
+        "## Large Tool Results\n"
+        "Read `{large_tool_results_prefix}/`. Offloaded tool results are stored under `{large_tool_results_prefix}/<tool_call_id>`.",
+    )
+    monkeypatch.setattr(vgs.filesystem, "_FILESYSTEM_SYSTEM_PROMPT_TEMPLATE", template, raising=False)
+    monkeypatch.setattr(vgs.filesystem, "FILESYSTEM_SYSTEM_PROMPT", template.format(large_tool_results_prefix="/large_tool_results"), raising=False)
+    execution = getattr(vgs.filesystem, "EXECUTION_SYSTEM_PROMPT", "## Execute Tool `execute`\nRun commands only when authorized.")
+    monkeypatch.setattr(vgs.filesystem, "EXECUTION_SYSTEM_PROMPT", execution, raising=False)
+    application = "APPLICATION RULE: Require operator approval before deployment."
+    parts = [template.format(large_tool_results_prefix=prefix), execution]
+    if position != "no_addition":
+        parts.insert(1 if position == "before_execute" else 2, application)
+    filesystem_middleware = FilesystemMiddleware(system_prompt="\n\n".join(parts))
+    graph_middleware = vgs_harness_profile().materialize_extra_middleware()[0]
+    request = ModelRequest(
+        model=FakeListChatModel(responses=["ok"]), messages=[HumanMessage(content="hello")], system_message=SystemMessage(content="Base"), tools=[]
+    )
+
+    def model_handler(updated):
+        prompt = updated.system_message.text
+        if position != "no_addition":
+            assert application in prompt
+        assert execution in prompt
+        assert "## Filesystem Tools" not in prompt
+        assert "Base" in prompt and "Virtual Graph System" in prompt
+        return ModelResponse(result=[])
+
+    filesystem_middleware.wrap_model_call(request, lambda updated: graph_middleware.wrap_model_call(updated, model_handler))
 
 
 def test_vgs_harness_profile_can_disable_graph_prompt():
