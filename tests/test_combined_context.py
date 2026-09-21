@@ -194,6 +194,58 @@ def test_file_workflow_records_selective_graph_context_and_reads_source():
     graph.close()
 
 
+def test_persistent_graph_does_not_persist_default_agent_files(tmp_path):
+    path = tmp_path / "project.lbdb"
+    graph = GraphMemoryBackend.create(path=path)
+    try:
+        writer = create_deep_agent(
+            model=ScriptedModel(
+                steps=[
+                    ("write_file", {"file_path": "/notes/result.txt", "content": "Parser passed after the fix."}),
+                    (
+                        "record_graph_trace",
+                        {
+                            "situation": "Parser failure",
+                            "rationale": "The failing test identified the parser change",
+                            "action": "Fixed the parser",
+                            "outcome": "Parser passed after the fix",
+                            "evidence_refs": [{"source_id": "parser-test", "locator": "/notes/result.txt"}],
+                        },
+                    ),
+                    ("read_file", {"file_path": "/notes/result.txt"}),
+                ]
+            ),
+            tools=graph_memory_tools(graph),
+            middleware=[graph_context_middleware()],
+        )
+        first = writer.invoke({"messages": [HumanMessage(content="Check the parser and save the result.")]})
+        replies = [message.text for message in first["messages"] if isinstance(message, ToolMessage)]
+        assert "Parser passed after the fix." in replies[-1]
+        assert "Recorded graph trace" in replies[1]
+    finally:
+        graph.close()
+
+    reopened = GraphMemoryBackend.create(path=path)
+    try:
+        reader = create_deep_agent(
+            model=ScriptedModel(
+                steps=[
+                    ("read_file", {"file_path": "/notes/result.txt"}),
+                    ("recall_graph_memory", {"query": "Parser failure"}),
+                ]
+            ),
+            tools=graph_memory_tools(reopened),
+            middleware=[graph_context_middleware()],
+        )
+        second = reader.invoke({"messages": [HumanMessage(content="Find the previous parser result.")]})
+        replies = [message.text for message in second["messages"] if isinstance(message, ToolMessage)]
+        assert "not found" in replies[0].lower()
+        assert "Parser passed after the fix" in replies[1]
+        assert "parser-test" in replies[1]
+    finally:
+        reopened.close()
+
+
 def test_async_combined_agent_keeps_file_and_graph_tools():
     graph = GraphMemoryBackend.create()
     model = ScriptedModel(

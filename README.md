@@ -52,9 +52,9 @@ agent = create_deep_agent(
     middleware=[graph_context_middleware()],
 )
 
-# Use agent.invoke(...) in your application.
-# Close the graph after the agent and all its workers finish:
-# graph.close()
+result = agent.invoke({"messages": [{"role": "user", "content": "Investigate the parser failure and record what you find."}]})
+print(result["messages"][-1].content)
+graph.close()
 ```
 
 ## Storage options
