@@ -32,12 +32,17 @@ Requires Python 3.11–3.14 on Linux or Apple Silicon Mac; see [supported platfo
 The graph database, OpenSSL, and search extension come bundled. No database server
 or separate search setup.
 
-## Quick start
+## Quick start: VGS and VFS together
+
+Use both together by default: filesystem tools handle working files and logs,
+while graph tools record findings and their relationships. This setup exposes
+read-only graph views under `/graph/` and keeps VFS files writable.
 
 Set your model provider's API key, then add the graph tools and guidance to your agent:
 
 ```python
 from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend
 from deepagents_graph_memory import (
     GraphMemoryBackend,
     graph_context_middleware,
@@ -49,6 +54,10 @@ agent = create_deep_agent(
     model="google_genai:gemini-3.5-flash",
     tools=graph_memory_tools(graph),
     middleware=[graph_context_middleware()],
+    backend=CompositeBackend(
+        default=StateBackend(),  # Working files and tool output.
+        routes={"/graph/": graph},  # Read-only graph views.
+    ),
 )
 
 result = agent.invoke({"messages": [{"role": "user", "content": "Investigate the parser failure and record what you find."}]})
@@ -58,9 +67,32 @@ graph.close()
 
 ## Storage options
 
-`GraphMemoryBackend.create()` keeps the graph temporarily while the backend is
-open. Use `GraphMemoryBackend.create(path="project.lbdb")` to keep it on a
-persistent disk across runs.
+- **Temporary:** `GraphMemoryBackend.create()` starts an empty graph for a session
+  or experiment. It keeps context while open; closing it or exiting the process
+  discards the graph.
+- **Persistent:** `GraphMemoryBackend.create(path="project.lbdb")` creates or
+  reopens a saved graph, so later runs can reuse the same project's context.
+
+For example, save a finding and recall it after reopening the database:
+
+```python
+from deepagents_graph_memory import GraphMemoryBackend
+
+graph = GraphMemoryBackend.create(path="project.lbdb")
+graph.record_graph_trace(
+    situation="Parser test failed", rationale="Empty fields were skipped",
+    action="Handled empty fields", outcome="Test passed",
+)
+graph.close()  # Releases the database; recorded context stays on disk.
+
+# In a later run, open the same path.
+graph = GraphMemoryBackend.create(path="project.lbdb")
+print(graph.recall_graph_memory("parser"))
+graph.close()
+```
+
+Keep the database on durable storage. VFS files have a separate lifetime; persist
+them with a file backend or a durable checkpointer.
 
 The [full guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md)
 covers deployment, shared agents, graph-only mode, and debugging. Agents choose
