@@ -38,7 +38,12 @@ Use both together by default: filesystem tools handle working files and logs,
 while graph tools record findings and their relationships. This setup exposes
 read-only graph views under `/graph/` and keeps VFS files writable.
 
-Set your model provider's API key, then add the graph tools and guidance to your agent:
+Set your model provider's API key, then choose temporary or persistent graph storage.
+
+### Temporary graph
+
+The graph keeps context while the backend is open. Closing it or exiting the
+process discards the graph.
 
 ```python
 from deepagents import create_deep_agent
@@ -65,18 +70,34 @@ print(result["messages"][-1].content)
 graph.close()
 ```
 
-## Storage options
+### Persistent graph
 
-- **Temporary:** `GraphMemoryBackend.create()` starts an empty graph for a session
-  or experiment. It keeps context while open; closing it or exiting the process
-  discards the graph.
-- **Persistent:** `GraphMemoryBackend.create(path="project.lbdb")` creates or
-  reopens a saved graph, so later runs can reuse the same project's context.
+Supply a path to save the graph on disk, so later runs can reuse the same project's
+context. Closing the backend keeps the saved graph.
 
 ```python
-from deepagents_graph_memory import GraphMemoryBackend
+from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend
+from deepagents_graph_memory import (
+    GraphMemoryBackend,
+    graph_context_middleware,
+    graph_memory_tools,
+)
 
 graph = GraphMemoryBackend.create(path="project.lbdb")
+agent = create_deep_agent(
+    model="google_genai:gemini-3.5-flash",
+    tools=graph_memory_tools(graph),
+    middleware=[graph_context_middleware()],
+    backend=CompositeBackend(
+        default=StateBackend(),  # Working files and tool output.
+        routes={"/graph/": graph},  # Read-only graph views.
+    ),
+)
+
+result = agent.invoke({"messages": [{"role": "user", "content": "Investigate the parser failure and record what you find."}]})
+print(result["messages"][-1].content)
+graph.close()
 ```
 
 See the [persistent storage guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#persistent-storage)
