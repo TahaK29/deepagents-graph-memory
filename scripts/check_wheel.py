@@ -31,12 +31,13 @@ assert "_vendor" in str(ladybug.__file__), ladybug.__file__
 original = _LadybugGraph.query
 
 def local_query(self, query, params=None):
-    assert "INSTALL" not in query.upper(), query
+    assert query.split(maxsplit=1)[0].upper() != "INSTALL", query
     return original(self, query, params)
 
 _LadybugGraph.query = local_query
 path = pathlib.Path(sys.argv[1]) / "wheel.lbdb"
 graph = GraphMemoryBackend.create(path=path, namespace="project")
+assert graph.store.graph.query("RETURN 'INSTALL' AS word") == [{"word": "INSTALL"}]
 trace = graph.record_graph_trace(situation="saffron parser failed", rationale="empty field", action="fixed parser", outcome="passed")
 assert graph.store.search("saffron", scope_key="project").items
 assert not graph.store.search("saffron", scope_key="another").items
