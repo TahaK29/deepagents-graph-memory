@@ -48,6 +48,7 @@ process discards the graph.
 ```python
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend
+
 from deepagents_graph_memory import (
     GraphMemoryBackend,
     graph_context_middleware,
@@ -55,6 +56,7 @@ from deepagents_graph_memory import (
 )
 
 graph = GraphMemoryBackend.create()
+
 agent = create_deep_agent(
     model="google_genai:gemini-3.5-flash",
     tools=graph_memory_tools(graph),
@@ -65,7 +67,17 @@ agent = create_deep_agent(
     ),
 )
 
-result = agent.invoke({"messages": [{"role": "user", "content": "Investigate the parser failure and record what you find."}]})
+result = agent.invoke(
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Investigate the parser failure and record what you find.",
+            }
+        ]
+    }
+)
+
 print(result["messages"][-1].content)
 graph.close()
 ```
@@ -78,6 +90,7 @@ context. Closing the backend keeps the saved graph.
 ```python
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend
+
 from deepagents_graph_memory import (
     GraphMemoryBackend,
     graph_context_middleware,
@@ -85,6 +98,7 @@ from deepagents_graph_memory import (
 )
 
 graph = GraphMemoryBackend.create(path="project.lbdb")
+
 agent = create_deep_agent(
     model="google_genai:gemini-3.5-flash",
     tools=graph_memory_tools(graph),
@@ -95,10 +109,70 @@ agent = create_deep_agent(
     ),
 )
 
-result = agent.invoke({"messages": [{"role": "user", "content": "Investigate the parser failure and record what you find."}]})
+result = agent.invoke(
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Investigate the parser failure and record what you find.",
+            }
+        ]
+    }
+)
+
 print(result["messages"][-1].content)
 graph.close()
 ```
+
+### Choosing the database path
+
+`path` names the database **file**, including its folder. Relative paths start
+from the directory where you run Python, which may differ from the script's folder.
+
+| Path | Where the graph is saved |
+| --- | --- |
+| `"project.lbdb"` | Your current working directory. |
+| `"data/project.lbdb"` | A `data` subfolder of that directory. |
+| `"../graph-data/project.lbdb"` | A `graph-data` folder one level above it. |
+| `"/data/project.lbdb"` | An absolute location, independent of your working directory. |
+
+The parent folder must exist and be writable. For example, replace the graph
+creation line with this to keep the database in your home folder, outside the repo:
+
+```python
+from pathlib import Path
+
+storage_dir = Path.home() / "graph-data"
+storage_dir.mkdir(parents=True, exist_ok=True)
+
+graph = GraphMemoryBackend.create(path=storage_dir / "project.lbdb")
+```
+
+Use `Path("/your/storage/folder")` instead of `Path.home() / "graph-data"` to
+choose another absolute location. Opening the same file reuses its saved context.
+
+### Azure and AWS storage
+
+Configure durable storage in your deployment, mount it into the app at a path
+such as `/data`, and give the app permission to write there. Then replace the graph
+creation line with:
+
+```python
+graph = GraphMemoryBackend.create(path="/data/project.lbdb")
+```
+
+- **Azure Container Apps:** see the [Azure Files mount setup](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts).
+- **AWS ECS:** see the [EFS volume setup](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html).
+
+The package does not create cloud resources or mount storage. Azure Files and EFS
+have not been integration-tested here; verify database locking and recovery on
+your chosen filesystem before using it. Keep one process in charge of each writable
+database, including during deployments.
+
+**Azure Blob Storage and S3 buckets are not direct database paths.** Do not pass
+an `https://...` or `s3://...` URL. For backups, close the database before copying
+its directory, including associated files, to object storage; restore it to a
+filesystem before reopening. Uploads and restores are handled by your application.
 
 See the [persistent storage guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#persistent-storage)
 for reopening saved graphs, reading previous context, and closing the database.
