@@ -153,26 +153,29 @@ choose another absolute location. Opening the same file reuses its saved context
 
 ### Azure and AWS storage
 
-Configure durable storage in your deployment, mount it into the app at a path
-such as `/data`, and give the app permission to write there. Then replace the graph
-creation line with:
+The simplest cloud setup is a Linux VM with a persistent disk:
+
+| Cloud | Run the agent on | Store the graph on |
+| --- | --- | --- |
+| AWS | EC2 | [Amazon EBS](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-using-volumes.html) |
+| Azure | Azure Linux VM | [Azure Managed Disk](https://learn.microsoft.com/en-us/azure/virtual-machines/managed-disks-overview) |
+
+Mount the disk at `/data`, give the app write permission, and use:
 
 ```python
 graph = GraphMemoryBackend.create(path="/data/project.lbdb")
 ```
 
-- **Azure Container Apps:** see the [Azure Files mount setup](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts).
-- **AWS ECS:** see the [EFS volume setup](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html).
+These disks should fit the filesystem-based design, but cloud deployments have
+not been tested here. Keep **one process writing to each database**.
 
-The package does not create cloud resources or mount storage. Azure Files and EFS
-have not been integration-tested here; verify database locking and recovery on
-your chosen filesystem before using it. Keep one process in charge of each writable
-database, including during deployments.
+For containers, [AWS EFS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html)
+and [Azure Files](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts)
+provide mounted storage; database locking and recovery still need validation.
 
-**Azure Blob Storage and S3 buckets are not direct database paths.** Do not pass
-an `https://...` or `s3://...` URL. For backups, close the database before copying
-its directory, including associated files, to object storage; restore it to a
-filesystem before reopening. Uploads and restores are handled by your application.
+**S3 and Azure Blob are backup options, not live database paths.** Close the graph
+before uploading its database files, and download them to a filesystem before
+reopening. Your application handles uploads and downloads.
 
 See the [persistent storage guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#persistent-storage)
 for reopening saved graphs, reading previous context, and closing the database.
