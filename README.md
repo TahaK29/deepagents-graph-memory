@@ -73,23 +73,14 @@ graph.close()
 - **Persistent:** `GraphMemoryBackend.create(path="project.lbdb")` creates or
   reopens a saved graph, so later runs can reuse the same project's context.
 
-For example, save a finding and recall it after reopening the database:
-
 ```python
 from deepagents_graph_memory import GraphMemoryBackend
 
 graph = GraphMemoryBackend.create(path="project.lbdb")
-graph.record_graph_trace(
-    situation="Parser test failed", rationale="Empty fields were skipped",
-    action="Handled empty fields", outcome="Test passed",
-)
-graph.close()  # Releases the database; recorded context stays on disk.
-
-# In a later run, open the same path.
-graph = GraphMemoryBackend.create(path="project.lbdb")
-print(graph.recall_graph_memory("parser"))
-graph.close()
 ```
+
+See the [persistent storage guide](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#persistent-storage)
+for reopening saved graphs, reading previous context, and closing the database.
 
 Keep the database on durable storage. VFS files have a separate lifetime; persist
 them with a file backend or a durable checkpointer.
