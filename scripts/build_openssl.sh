@@ -8,5 +8,5 @@ mkdir -p /tmp/graph-memory-openssl-src
 tar -xzf /tmp/graph-memory-openssl.tar.gz -C /tmp/graph-memory-openssl-src --strip-components=1
 cd /tmp/graph-memory-openssl-src
 ./Configure --prefix=/opt/graph-memory-openssl --libdir=lib shared no-tests
-make -j2 > /tmp/graph-memory-openssl-build.log
+make -j"$(nproc)" > /tmp/graph-memory-openssl-build.log
 make install_sw > /tmp/graph-memory-openssl-install.log

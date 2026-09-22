@@ -28,10 +28,9 @@ Built by **Pranav Bedi and Taha Khan**, using LadybugDB. Experimental.
 pip install --upgrade deepagents-graph-memory
 ```
 
-Requires Python 3.11–3.14 on a [supported platform](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#requirements).
+Requires Python 3.11–3.14 on Linux or Apple Silicon Mac; see [supported platforms](https://github.com/TahaK29/deepagents-graph-memory/blob/main/docs/guide.md#requirements).
 The graph database, OpenSSL, and search extension come bundled. No database server
-or separate search setup. Intel Macs have an upstream dependency build requirement;
-see the platform details above.
+or separate search setup.
 
 ## Quick start
 

@@ -28,25 +28,19 @@ cache into the user's home directory.
 ### Requirements
 
 - CPython 3.11–3.14, standard GIL builds.
-- macOS 15+ on Apple Silicon or Intel; Windows x64; Linux x64 or ARM64 with glibc 2.28+.
+- macOS 15+ on Apple Silicon; Linux x64 or ARM64 with glibc 2.28+.
 - Deep Agents 0.6.10 or later. CI also checks 0.6.10, 0.6.12, and 0.7.1.
 
-**Intel Mac limitation:** the graph wheel is self-contained, but the latest Deep
-Agents dependency chain includes `cryptography`, which
-[stopped publishing Intel Mac wheels in version 49](https://cryptography.io/en/latest/changelog/#v49-0-0).
-Installing that dependency can require Rust, Xcode command-line tools, and OpenSSL
-for a source build; see its [installation guide](https://cryptography.io/en/latest/installation/).
-We do not cap it to an older release: version 50 includes a security fix missing
-from the last Intel wheel release. Apple Silicon, Windows x64, and the supported
-Linux targets have prebuilt wheels for the currently tested dependency versions.
+Starting with 0.1.8, releases contain 12 wheels across these three platforms and
+four Python versions. Windows and Intel Mac wheels remain available in 0.1.7;
+they are no longer built or tested for new releases.
 
 PyPI releases provide platform wheels, not a source archive that silently falls
-back to a native build. Windows ARM64, Alpine/musl, PyPy, and free-threaded Python
+back to a native build. Windows, Intel Macs, Alpine/musl, PyPy, and free-threaded Python
 aren't in this wheel matrix. Unsupported platforms need a separately tested
 source build. Future Deep Agents releases still need CI to establish compatibility.
 
-The runtime stays pinned to 0.20.3 because 0.20.4 has a
-[Windows FTS ABI regression](https://github.com/LadybugDB/ladybug/issues/971).
+The runtime stays pinned to the tested LadybugDB 0.20.3 build.
 The package loads its private copy under Ladybug's canonical Python module name
 to avoid loading the native binding twice. An already imported standalone
 Ladybug 0.20.3 can be reused; a different loaded version raises an error. Keep
@@ -728,11 +722,10 @@ with ladybug.Database(":memory:", buffer_pool_size=64 * 1024 * 1024) as db:
 ```
 
 Release wheels copy the upstream runtime and extension during the build, then
-use auditwheel (Linux), delocate (macOS), or delvewheel (Windows) to bundle and
+use auditwheel (Linux) or delocate (macOS) to bundle and
 relink native dependencies. Run the wheel CI to validate those artifacts; a local
 `python -m build` alone doesn't perform the repair. The manual publishing workflow
-builds the release wheels and runs one focused Linux install/subagent check before
-uploading them. It does not require the full platform test matrix. See
+uploads the wheels from a successful full CI run for the exact release commit. See
 [publishing a release](#publishing-a-release).
 
 ## Design rationale
@@ -817,11 +810,16 @@ The live report keeps both arms, including errors and completed tool traces. It 
 ## Publishing a release
 
 The manually triggered `.github/workflows/publish.yml` workflow publishes from
-`main`. It builds all 20 platform wheels without running tests on every combination,
-checks that all packages are present, and tests one installed Linux/Python 3.11 wheel
-for offline operation and tool/subagent behavior. It then validates the distributions
-and uploads them using PyPI Trusted Publishing. This does not verify every platform
-for that release. Releases do not include a source archive.
+`main`. It downloads the 12 wheels from a successful Tests run for the exact
+commit being released, checks the complete platform matrix and distribution
+metadata, then uploads those tested wheels using PyPI Trusted Publishing.
+Publishing does not rebuild wheels or rerun their tests. Releases do not include
+a source archive. If no successful Tests run exists for that commit, publishing
+stops before downloading or uploading artifacts.
+
+The Tests workflow builds each platform/Python combination in parallel. Every
+wheel runs the full suite and bundled-runtime checks; three additional jobs
+check older Deep Agents releases. Linux OpenSSL builds use all available CPUs.
 Only the upload job has permission to request a publishing identity.
 
 Configure the PyPI publisher with project `deepagents-graph-memory`, owner
@@ -829,7 +827,8 @@ Configure the PyPI publisher with project `deepagents-graph-memory`, owner
 environment `pypi`. For the first release, add this as a pending publisher on the
 maintainer's PyPI account. No long-lived API token is needed.
 
-After updating the package version, start the workflow:
+After updating the package version, push to `main` and wait for the Tests workflow
+to pass. Then start the publishing workflow:
 
 ```bash
 gh workflow run publish.yml --ref main
@@ -861,9 +860,9 @@ Maintainers decide acceptance; passing these checks cannot guarantee a merge.
 | File semantics | Regression coverage checks directory paths, literal matching lines, capped search, validated relative glob patterns, newline-preserving reads and pagination, errors, and native synchronous/asynchronous `CompositeBackend` routing. |
 | Bounded inspection | Directory limits return structured errors. Known node paths remain readable. Node views and graph recall retain their existing traversal budgets. |
 | Runtime setup | Published wheels bundle LadybugDB 0.20.3, OpenSSL 3, and FTS. The guide covers supported platforms, persistent storage, and a writable default backend alongside `/graph/`. |
-| Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release (currently 0.7.15). Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
+| Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release. Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
 | Published, installable package | Verify the release's platform wheels on PyPI, then confirm installation from the public index in a fresh environment. |
-| Release verification | The manual publisher checks one installed Linux/Python 3.11 wheel and the tool/subagent tests. The separate Tests workflow covers the full platform and older-version matrix; publishing does not require that matrix. |
+| Release verification | Publishing requires a successful Tests run for the exact main commit and uploads its tested wheels. That run covers all 12 platform/Python combinations and three older Deep Agents versions. The publisher also validates the complete wheel matrix and package metadata. |
 
 The required filesystem methods come from the
 [custom backend guide](https://docs.langchain.com/oss/python/deepagents/backends#custom-backends).

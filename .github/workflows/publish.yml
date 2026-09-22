@@ -9,33 +9,35 @@ permissions:
 concurrency: pypi-publish
 
 jobs:
-  wheels:
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/wheels.yml
-    with:
-      run-tests: false
-
   collect:
-    needs: wheels
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Find tested wheels for this commit
+        id: tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --branch main --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -z "$test_run_id" ]; then
+            echo "::error::The Tests workflow must pass for this main commit before publishing."
+            exit 1
+          fi
+          echo "run_id=$test_run_id" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           pattern: native-wheels-*
           path: artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.tests.outputs.run_id }}
       - run: python scripts/collect_wheels.py
-      - name: Check one installed wheel and subagent behavior
-        run: |
-          python -m pip install dist/*cp311*manylinux*x86_64.whl pytest pytest-asyncio
-          python scripts/check_wheel.py
-          python -m pytest -q tests/test_tools.py tests/test_combined_context.py
       - name: Validate distributions
         run: |
           python -m pip install twine
@@ -45,6 +47,7 @@ jobs:
           name: distributions
           path: dist/
           if-no-files-found: error
+          compression-level: 0
 
   publish:
     needs: collect

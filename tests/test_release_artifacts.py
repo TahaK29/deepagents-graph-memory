@@ -10,7 +10,7 @@ def test_release_matrix(tmp_path):
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.1"\n')
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    platforms = ("manylinux_2_28_x86_64", "manylinux_2_28_aarch64", "macosx_15_0_arm64", "macosx_15_0_x86_64", "win_amd64")
+    platforms = ("manylinux_2_28_x86_64", "manylinux_2_28_aarch64", "macosx_15_0_arm64")
     for python in ("cp311", "cp312", "cp313", "cp314"):
         for platform in platforms:
             (artifacts / f"deepagents_graph_memory-0.1.1-{python}-{python}-{platform}.whl").touch()
@@ -18,11 +18,11 @@ def test_release_matrix(tmp_path):
     def run():
         return subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
 
-    selected = next(artifacts.glob("*cp311*win_amd64*"))
+    selected = next(artifacts.glob("*cp311*manylinux_2_28_x86_64*"))
     selected.unlink()
     assert "Incomplete release matrix" in run().stderr
     selected.touch()
-    wrong = selected.with_name(selected.name.replace("win_amd64", "manylinux_2_28_ppc64le"))
+    wrong = selected.with_name(selected.name.replace("manylinux_2_28_x86_64", "manylinux_2_28_ppc64le"))
     selected.rename(wrong)
     assert "Unexpected platform" in run().stderr
     wrong.rename(selected)
@@ -31,7 +31,12 @@ def test_release_matrix(tmp_path):
     (duplicate / selected.name).touch()
     assert "Duplicate release target" in run().stderr
     (duplicate / selected.name).unlink()
+    for platform in ("win_amd64", "macosx_15_0_x86_64"):
+        unsupported = artifacts / f"deepagents_graph_memory-0.1.1-cp311-cp311-{platform}.whl"
+        unsupported.touch()
+        assert "Unexpected platform" in run().stderr
+        unsupported.unlink()
     result = run()
     assert result.returncode == 0, result.stderr
-    assert len(list((tmp_path / "dist").glob("*.whl"))) == 20
+    assert len(list((tmp_path / "dist").glob("*.whl"))) == 12
     assert "must be empty" in run().stderr

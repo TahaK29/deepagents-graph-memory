@@ -76,7 +76,7 @@ testpaths = ["tests"]
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
-skip = "*-musllinux* *-win32"
+skip = "*-musllinux* *-win*"
 test-requires = ["pytest>=8", "pytest-asyncio>=1"]
 test-command = [
     "python {project}/scripts/check_wheel.py",
@@ -92,11 +92,3 @@ environment = { LD_LIBRARY_PATH = "/opt/graph-memory-openssl/lib:$LD_LIBRARY_PAT
 [tool.cibuildwheel.macos]
 before-all = "brew install openssl@3"
 environment = { MACOSX_DEPLOYMENT_TARGET = "15.0" }
-
-[tool.cibuildwheel.windows]
-before-build = "pip install delvewheel"
-repair-wheel-command = 'delvewheel repair --ignore-existing --analyze-existing --with-mangle --add-path "%GRAPH_MEMORY_BUILD_OPENSSL%" -w {dest_dir} {wheel}'
-test-command = [
-    "python {project}/scripts/check_wheel.py",
-    'cd /d "{project}" && python -m pytest -q tests',
-]
