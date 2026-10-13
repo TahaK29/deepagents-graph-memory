@@ -834,6 +834,14 @@ the middleware does not install these tools automatically. The graph tools also
 fit the [tools and toolkits category](https://docs.langchain.com/oss/python/integrations/tools).
 Listing acceptance remains up to the LangChain maintainers.
 
+For a community package below the hosted-guide eligibility threshold, use the
+[Integration listing issue form](https://github.com/langchain-ai/docs/issues/new?template=06-integration-submission.yml)
+with language **Python**, component **middleware**, package **deepagents-graph-memory**,
+and this guide as the documentation URL. A maintainer reviews the submission and
+triggers automation to create the listing PR. Do not open a manual listing PR
+unless a maintainer requests it. See the
+[current contribution process](https://docs.langchain.com/oss/python/contributing/publish-langchain#make-your-integration-discoverable).
+
 Do not submit the package as a filesystem backend. The previous proposed row on
 that page described an interface removed in 0.2.0. Applications upgrading from
 0.1.x must pass graph tools and middleware separately and use an ordinary Deep
