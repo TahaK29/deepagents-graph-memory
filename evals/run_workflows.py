@@ -97,12 +97,12 @@ def run_offline(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
         checks = {marker: marker in context for marker in expected["contains"]}
         unique_traces = expected.get("unique_traces")
         if unique_traces is not None:
-            traces = backend.ls("/graph/nodes/Trace/").entries or []
+            traces = backend.store.list_node_ids("Trace", limit=unique_traces + 1).items
             checks["unique_traces"] = len(traces) == len(notes) == unique_traces
         unique_sources = expected.get("unique_sources")
         if unique_sources is not None:
             sources = {ref["source_id"] for note in notes for ref in note.get("evidence_refs", [])}
-            graph_sources = backend.ls("/graph/nodes/EvidenceSource/").entries or []
+            graph_sources = backend.store.list_node_ids("EvidenceSource", limit=unique_sources + 1).items
             checks["unique_sources"] = len(graph_sources) == len(sources) == unique_sources
         results.append(
             {

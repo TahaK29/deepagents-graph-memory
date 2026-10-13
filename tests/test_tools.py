@@ -34,7 +34,7 @@ def test_graph_memory_tools_write_safe_facts():
 
     assert "Added graph node" in node_result
     assert "Added graph edge" in edge_result
-    assert backend.read("/nodes/service/langfuse.md").error is None
+    assert backend.store.get_node("service", "langfuse").properties["tier"] == "prod"
 
 
 def test_graph_document_tool_accepts_json_and_rolls_back_invalid_batches():

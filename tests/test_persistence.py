@@ -32,7 +32,7 @@ def test_disk_graph_reopens_with_trace_relationships_scope_and_retry(tmp_path):
     reopened = GraphMemoryBackend.create(path=path, namespace="project")
     assert reopened.store.get_node("Trace", trace_id, scope_key="project") == before
     assert reopened.store.get_neighbors("Trace", trace_id, scope_key="project").edges == edges
-    assert "a failure" in reopened.read(f"/nodes/Trace/{trace_id}.md").file_data["content"]
+    assert reopened.store.get_node("Trace", trace_id, scope_key="project").properties["situation"] == "a failure"
     assert "fixed retry" in reopened.recall_graph_memory("retry", anchors=[f"/nodes/Trace/{trace_id}.md"])
     assert reopened.store.search("fixed retry", scope_key="project").items
     assert reopened.record_graph_trace(**payload, artifacts=["src/retry.py"]) == trace_id

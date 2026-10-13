@@ -35,8 +35,10 @@ or separate search setup.
 ## Quick start: VGS and VFS together
 
 Use both together by default: filesystem tools handle working files and logs,
-while graph tools record findings and their relationships. This setup exposes
-read-only graph views under `/graph/` and keeps VFS files writable.
+while graph tools record findings and recall their connected context. The graph
+has no agent filesystem interface. For human review, save it to a `.lbdb` file
+and open a closed copy in a compatible [Ladybug Explorer](https://github.com/LadybugDB/explorer).
+See [download and view the graph](docs/guide.md#download-and-view-the-graph).
 
 Set your model provider's API key, then choose temporary or persistent graph storage.
 
@@ -47,7 +49,6 @@ process discards the graph.
 
 ```python
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend
 
 from deepagents_graph_memory import (
     GraphMemoryBackend,
@@ -61,10 +62,6 @@ agent = create_deep_agent(
     model="google_genai:gemini-3.5-flash",
     tools=graph_memory_tools(graph),
     middleware=[graph_context_middleware()],
-    backend=CompositeBackend(
-        default=StateBackend(),  # Working files and tool output.
-        routes={"/graph/": graph},  # Read-only graph views.
-    ),
 )
 
 result = agent.invoke(
@@ -89,7 +86,6 @@ context. Closing the backend keeps the saved graph.
 
 ```python
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend
 
 from deepagents_graph_memory import (
     GraphMemoryBackend,
@@ -103,10 +99,6 @@ agent = create_deep_agent(
     model="google_genai:gemini-3.5-flash",
     tools=graph_memory_tools(graph),
     middleware=[graph_context_middleware()],
-    backend=CompositeBackend(
-        default=StateBackend(),  # Working files and tool output.
-        routes={"/graph/": graph},  # Read-only graph views.
-    ),
 )
 
 result = agent.invoke(

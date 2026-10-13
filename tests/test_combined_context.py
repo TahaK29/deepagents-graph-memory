@@ -89,6 +89,19 @@ class DelegatingModel(ScriptedModel):
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content if not calls else "", tool_calls=calls))])
 
 
+def test_graph_cannot_be_mounted_as_an_agent_filesystem():
+    graph = GraphMemoryBackend.create()
+    try:
+        graph.record_graph_trace(situation="inspection sentinel", rationale="human review", action="checked", outcome="stored")
+        mounted = CompositeBackend(default=StateBackend(), routes={"/graph/": graph})
+        with pytest.raises(AttributeError, match="read"):
+            mounted.read("/graph/schema.md")
+        with pytest.raises(AttributeError, match="download_files"):
+            mounted.download_files(["/graph/schema.md"])
+    finally:
+        graph.close()
+
+
 @pytest.mark.parametrize("async_mode", [False, True])
 @pytest.mark.parametrize("thread_id", [None, "shared-thread"])
 def test_dynamic_workers_get_distinct_stable_identities_in_shared_graph(async_mode, thread_id):
@@ -130,9 +143,7 @@ def test_registered_graph_only_profile_works_with_real_agent(monkeypatch):
         agent = create_deep_agent(
             model="test:graph-only-compatibility",
             tools=graph_memory_tools(graph),
-            backend=CompositeBackend(default=StateBackend(), routes={"/graph/": graph}),
             system_prompt="Preserve application instructions.",
-            memory=["/graph/index.md"],
         )
         agent.invoke({"messages": [HumanMessage(content="Check graph context.")]})
         assert not model._tool_names & VFS_TOOL_NAMES
@@ -140,7 +151,6 @@ def test_registered_graph_only_profile_works_with_real_agent(monkeypatch):
         prompt = next(message.text for message in model._seen[0] if isinstance(message, SystemMessage))
         assert "Preserve application instructions." in prompt
         assert "Virtual Graph System" in prompt
-        assert "Graph Memory" in prompt
         assert "## Filesystem Tools" not in prompt
     finally:
         graph.close()
@@ -173,7 +183,6 @@ def test_file_workflow_records_selective_graph_context_and_reads_source():
         model=model,
         tools=graph_memory_tools(graph),
         middleware=[graph_context_middleware()],
-        backend=CompositeBackend(default=StateBackend(), routes={"/graph/": graph}),
         system_prompt=SystemMessage(content="Project instructions: inspect the report."),
     )
 
@@ -318,26 +327,31 @@ def test_large_tool_result_offloads_to_file_without_copying_dump_into_graph():
     graph.close()
 
 
-def test_native_composite_routes_graph_reads_searches_and_rejects_writes(tmp_path):
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_agent_retrieves_graph_only_through_recall(async_mode):
     graph = GraphMemoryBackend.create()
-    graph.add_graph_node("service", "parser", {"state": "checked"})
-    files = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-    backend = CompositeBackend(default=files, routes={"/graph/": graph})
-    assert backend.write("/notes/source.txt", "source text").error is None
-    assert backend.read("/notes/source.txt").file_data["content"] == "source text"
-    assert "parser" in backend.read("/graph/nodes/service/parser.md").file_data["content"]
-    assert any("/graph/nodes/service/parser.md" == item["path"] for item in backend.glob("**/*.md", path="/graph/").matches)
-    assert any("parser" in item["text"] for item in backend.grep("parser", path="/graph/").matches)
-    assert backend.write("/graph/nodes/service/parser.md", "wrong").error
-    assert backend.edit("/graph/nodes/service/parser.md", "checked", "wrong").error
-    assert backend.upload_files([("/graph/extra.md", b"wrong")])[0].error
-    assert "checked" in backend.read("/graph/nodes/service/parser.md").file_data["content"]
-    graph.close()
+    graph.add_graph_node("service", "parser", {"state": "private graph state"})
+    model = ScriptedModel(
+        steps=[
+            ("read_file", {"file_path": "/graph/schema.md"}),
+            ("read_file", {"file_path": "/graph/nodes/service/parser.md"}),
+            ("recall_graph_memory", {"query": "parser"}),
+        ]
+    )
+    try:
+        agent = create_deep_agent(model=model, tools=graph_memory_tools(graph), middleware=[graph_context_middleware()])
+        state = {"messages": [HumanMessage(content="Retrieve the parser graph context.")]}
+        result = asyncio.run(agent.ainvoke(state)) if async_mode else agent.invoke(state)
+        replies = [message.text for message in result["messages"] if isinstance(message, ToolMessage)]
+        assert all("private graph state" not in reply and "not found" in reply.lower() for reply in replies[:2])
+        assert "private graph state" in replies[2]
+    finally:
+        graph.close()
 
 
 def test_configured_inline_subagent_shares_evidence_file_and_trace_with_parent():
     graph = GraphMemoryBackend.create()
-    backend = CompositeBackend(default=StateBackend(), routes={"/graph/": graph})
+    backend = StateBackend()
     child = ScriptedModel(
         steps=[
             ("write_file", {"file_path": "/notes/child-report.txt", "content": "Child observed parser green."}),
@@ -392,7 +406,7 @@ def test_configured_inline_subagent_shares_evidence_file_and_trace_with_parent()
 
 def test_routine_file_work_does_not_record_graph_and_changed_source_remains_historical(tmp_path):
     graph = GraphMemoryBackend.create()
-    backend = CompositeBackend(default=FilesystemBackend(root_dir=tmp_path, virtual_mode=True), routes={"/graph/": graph})
+    backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
     model = ScriptedModel(
         steps=[
             ("write_file", {"file_path": "/notes/source.txt", "content": "build passed"}),

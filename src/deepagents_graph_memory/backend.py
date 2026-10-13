@@ -1,45 +1,24 @@
-# - Lets an agent browse graph context as if it were a set of files.
+# - Records and recalls graph context through controlled methods and tools.
 # - Also saves connected records of what happened, why, and how it turned out.
-# - Tests: test_backend_read.py and test_backend_ls.py cover reading and finding context;
-#        test_write_behavior.py checks that the file views stay read-only.
+# - Tests: test_tools.py and test_recall.py cover the agent interface;
 #        test_trace.py, test_scope.py, and test_limits.py cover work history, separation, and size limits;
 #        test_create_and_clear.py checks how a fresh graph starts.
 
-"""Deep Agents backend implementation for graph memory."""
+"""Graph context recording and recall for Deep Agents."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import sys
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from deepagents.backends.protocol import (
-    BackendProtocol,
-    EditResult,
-    FileDownloadResponse,
-    FileInfo,
-    FileUploadResponse,
-    GlobResult,
-    GrepMatch,
-    GrepResult,
-    LsResult,
-    ReadResult,
-    WriteResult,
-)
-from deepagents.backends.utils import create_file_data, slice_read_response
-from wcmatch import glob as wcglob
-
-from deepagents_graph_memory.errors import GraphMemoryError, GraphMemoryValidationError
+from deepagents_graph_memory.errors import GraphMemoryValidationError
 from deepagents_graph_memory.ladybug_store import LadybugGraphStore
 from deepagents_graph_memory.paths import (
-    node_path,
-    normalize_graph_path,
-    parse_graph_path,
     validate_identifier,
     validate_namespace,
     validate_node_id,
@@ -47,38 +26,30 @@ from deepagents_graph_memory.paths import (
 )
 from deepagents_graph_memory.recall import RecallMode
 from deepagents_graph_memory.recall import recall_graph_memory as _recall_graph_memory
-from deepagents_graph_memory.renderers import render_index, render_node, render_schema, render_search
 from deepagents_graph_memory.stores import GraphStoreAdapter, merge_metadata, utc_now, validate_properties
 
-READ_ONLY_ERROR = "Graph memory views are read-only. Use graph memory tools to add or update graph facts."
 TRACE_TEXT_ALLOWED_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
 NamespaceFactory = Callable[[Any], tuple[str, ...]]
 Namespace = str | Sequence[str] | NamespaceFactory | None
 
 
-class GraphMemoryBackend(BackendProtocol):
-    """Deep Agents backend that projects graph facts into graph context views."""
+class GraphMemoryBackend:
+    """Record and recall structured graph context for Deep Agents."""
 
     def __init__(
         self,
         store: GraphStoreAdapter,
         *,
         namespace: Namespace = None,
-        max_nodes: int = 50,
-        max_edges: int = 100,
     ) -> None:
         """Initialize a graph memory backend.
 
         Args:
             store: Internal graph store adapter.
             namespace: Optional Deep Agents-style namespace factory or static namespace.
-            max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in node pages.
         """
         self.store = store
         self.namespace = namespace
-        self.max_nodes = max_nodes
-        self.max_edges = max_edges
 
     @classmethod
     def create(
@@ -86,16 +57,12 @@ class GraphMemoryBackend(BackendProtocol):
         *,
         path: str | Path | None = None,
         namespace: Namespace = None,
-        max_nodes: int = 50,
-        max_edges: int = 100,
     ) -> GraphMemoryBackend:
         """Create a LadybugDB graph memory backend.
 
         Args:
             path: Persistent database file path; omitted for an in-memory graph.
             namespace: Optional Deep Agents-style namespace factory or static namespace.
-            max_nodes: Maximum nodes listed or traversed in bounded views.
-            max_edges: Maximum edges rendered in node pages.
 
         Returns:
             Configured graph memory backend.
@@ -103,135 +70,12 @@ class GraphMemoryBackend(BackendProtocol):
         return cls(
             LadybugGraphStore.memory() if path is None else LadybugGraphStore.disk(path),
             namespace=namespace,
-            max_nodes=max_nodes,
-            max_edges=max_edges,
         )
 
     def close(self) -> None:
         """Close resources owned by a LadybugDB store."""
         if isinstance(self.store, LadybugGraphStore):
             self.store.close()
-
-    def ls(self, path: str) -> LsResult:
-        """List graph memory virtual files."""
-        try:
-            scope_key = self._scope_key()
-            normalized, had_graph_prefix = normalize_graph_path(path)
-            entries = self._ls_internal(normalized, scope_key=scope_key)
-            if had_graph_prefix:
-                entries = [_prefix_file_info(entry) for entry in entries]
-            return LsResult(entries=entries)
-        except GraphMemoryError as exc:
-            return LsResult(error=str(exc), entries=None)
-
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
-        """Read a graph memory virtual file."""
-        offset, limit = max(int(offset), 0), max(int(limit), 0)
-        if limit == 0:
-            metadata = {"no_lines_requested": True} if hasattr(ReadResult, "no_lines_requested") else {}
-            return ReadResult(file_data=create_file_data(""), **metadata)
-        try:
-            scope_key = self._scope_key()
-            normalized = normalize_graph_path(file_path)[0].rstrip("/")
-            if normalized in {"", "/nodes", "/search"} or (normalized.startswith("/nodes/") and normalized.count("/") == 2):
-                return ReadResult(error="is_directory")
-            parsed = parse_graph_path(file_path)
-            if parsed.kind == "index":
-                content = render_index()
-            elif parsed.kind == "schema":
-                content = render_schema(self.store.get_schema(scope_key=scope_key))
-            elif parsed.kind == "node":
-                assert parsed.label is not None and parsed.node_id is not None
-                node = self.store.get_node(parsed.label, parsed.node_id, scope_key=scope_key)
-                if node is None:
-                    return ReadResult(error=f"Graph node '{parsed.label}/{parsed.node_id}' not found.")
-                neighborhood = self.store.get_neighbors(
-                    parsed.label,
-                    parsed.node_id,
-                    scope_key=scope_key,
-                    depth=1,
-                    max_nodes=self.max_nodes,
-                    max_edges=self.max_edges,
-                )
-                content = render_node(node, neighborhood)
-            else:
-                assert parsed.query is not None
-                content = render_search(parsed.query, self.store.search(parsed.query, scope_key=scope_key, limit=self.max_nodes))
-            result = slice_read_response(create_file_data(content), offset, limit)
-            # Deep Agents 0.6 returns text; 0.7 returns a result with pagination metadata.
-            return ReadResult(file_data=create_file_data(result)) if isinstance(result, str) else result
-        except GraphMemoryError as exc:
-            return ReadResult(error=str(exc))
-
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None) -> GrepResult:
-        """Search rendered graph files for case-sensitive literal matching lines."""
-        try:
-            scope_key = self._scope_key()
-            base_path, had_graph_prefix = normalize_graph_path(path or "/")
-            matcher = _compile_glob(glob) if glob else None
-            matches: list[GrepMatch] = []
-            # ponytail: scan rendered views; add an index only if literal grep becomes a measured bottleneck.
-            for candidate in self._candidate_files(base_path, scope_key=scope_key):
-                candidate_path = candidate["path"]
-                if matcher is not None and not matcher(_relative_path(candidate_path, base_path)):
-                    continue
-                result = self.read(candidate_path, limit=sys.maxsize)
-                if result.error is not None:
-                    return GrepResult(error=result.error)
-                assert result.file_data is not None
-                for line_number, line in enumerate(result.file_data["content"].splitlines(), 1):
-                    if pattern in line:
-                        if max_count is not None and len(matches) >= max_count:
-                            if hasattr(GrepResult, "truncated"):
-                                return GrepResult(matches=matches, truncated=True)
-                            return GrepResult(error="Grep exceeded max_count. Narrow the search or use Deep Agents 0.7 for truncation metadata.")
-                        matches.append({"path": _maybe_prefix(candidate_path, had_graph_prefix), "line": line_number, "text": line})
-            return GrepResult(matches=matches)
-        except (GraphMemoryError, ValueError) as exc:
-            return GrepResult(error=str(exc), matches=None)
-
-    def glob(self, pattern: str, path: str | None = None) -> GlobResult:
-        """Find graph memory virtual files by glob pattern."""
-        try:
-            scope_key = self._scope_key()
-            base_path, had_graph_prefix = normalize_graph_path(path or "/")
-            internal_pattern, _pattern_had_graph_prefix = _normalize_pattern(pattern)
-            matcher = _compile_glob(internal_pattern)
-            recursive = not internal_pattern.startswith("/") or "/" in internal_pattern.strip("/") or "**" in internal_pattern
-            matches = []
-            for candidate in self._candidate_files(base_path, scope_key=scope_key, recursive=recursive):
-                if matcher(_relative_path(candidate["path"], base_path)):
-                    matches.append(_prefix_file_info(candidate) if had_graph_prefix else candidate)
-            matches.sort(key=lambda item: item["path"])
-            return GlobResult(matches=matches)
-        except (GraphMemoryError, ValueError) as exc:
-            return GlobResult(error=str(exc), matches=None)
-
-    def write(self, file_path: str, content: str) -> WriteResult:
-        """Reject writes to generated graph memory views."""
-        del content
-        return WriteResult(error=READ_ONLY_ERROR, path=file_path)
-
-    def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
-        """Reject edits to generated graph memory views."""
-        del old_string, new_string, replace_all
-        return EditResult(error=READ_ONLY_ERROR, path=file_path)
-
-    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        """Reject uploads to generated graph memory views."""
-        return [FileUploadResponse(path=path, error=READ_ONLY_ERROR) for path, _content in files]
-
-    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
-        """Download generated graph memory views for Deep Agents memory loading."""
-        responses = []
-        for path in paths:
-            result = self.read(path, offset=0, limit=sys.maxsize)
-            if result.error is not None or result.file_data is None:
-                error = "file_not_found" if result.error and "not found" in result.error.casefold() else result.error
-                responses.append(FileDownloadResponse(path=path, error=error))
-                continue
-            responses.append(FileDownloadResponse(path=path, content=result.file_data["content"].encode("utf-8")))
-        return responses
 
     def add_graph_node(self, label: str, node_id: str, properties: dict[str, Any] | None = None, **metadata: Any) -> None:
         """Add or update a graph node through a controlled write path."""
@@ -624,45 +468,6 @@ class GraphMemoryBackend(BackendProtocol):
             max_edges=max_edges,
         )
 
-    def _ls_internal(self, normalized: str, *, scope_key: str | None) -> list[FileInfo]:
-        normalized = normalized.rstrip("/") or "/"
-        if normalized == "/":
-            return [
-                {"path": "/index.md", "is_dir": False},
-                {"path": "/nodes/", "is_dir": True},
-                {"path": "/schema.md", "is_dir": False},
-                {"path": "/search/", "is_dir": True},
-            ]
-        if normalized == "/nodes":
-            result = self.store.list_labels(scope_key=scope_key, limit=self.max_nodes)
-            entries = [{"path": f"/nodes/{label}/", "is_dir": True} for label in result.items]
-        elif normalized.startswith("/nodes/") and normalized.count("/") == 2:
-            label = validate_identifier(normalized.rsplit("/", 1)[-1], field="label")
-            result = self.store.list_node_ids(label, scope_key=scope_key, limit=self.max_nodes)
-            entries = [{"path": node_path(label, node_id), "is_dir": False} for node_id in result.items]
-        else:
-            return []
-        if result.truncated:
-            raise GraphMemoryValidationError(f"Directory listing exceeds max_nodes={self.max_nodes}. Increase max_nodes or use a known node path.")
-        return sorted(entries, key=lambda entry: entry["path"])
-
-    def _candidate_files(self, path: str, *, scope_key: str | None, recursive: bool = True) -> list[FileInfo]:
-        if path.endswith(".md"):
-            parsed = parse_graph_path(path)
-            if parsed.kind == "node":
-                assert parsed.label is not None and parsed.node_id is not None
-                if self.store.get_node(parsed.label, parsed.node_id, scope_key=scope_key) is None:
-                    return []
-            return [{"path": parsed.path, "is_dir": False}]
-        files: list[FileInfo] = []
-        for entry in self._ls_internal(path, scope_key=scope_key):
-            if entry.get("is_dir"):
-                if recursive:
-                    files.extend(self._candidate_files(entry["path"], scope_key=scope_key))
-            else:
-                files.append(entry)
-        return sorted(files, key=lambda entry: entry["path"])
-
     def _scope_key(self) -> str | None:
         namespace = self.namespace
         if namespace is None:
@@ -727,44 +532,6 @@ def _get_runtime_or_none() -> Any | None:
         return get_runtime()
     except (RuntimeError, KeyError):
         return None
-
-
-def _prefix_file_info(info: FileInfo) -> FileInfo:
-    return {**info, "path": _maybe_prefix(info["path"], True)}
-
-
-def _maybe_prefix(path: str, use_prefix: bool) -> str:
-    if not use_prefix:
-        return path
-    if path == "/":
-        return "/graph/"
-    return f"/graph{path}"
-
-
-def _relative_path(candidate_path: str, base_path: str) -> str:
-    if candidate_path == base_path:
-        return candidate_path.rsplit("/", 1)[-1]
-    return candidate_path.removeprefix(base_path.rstrip("/") + "/")
-
-
-def _compile_glob(pattern: str) -> Callable[[str], bool]:
-    # Keep validation and POSIX matching consistent across Deep Agents versions and hosts.
-    if ".." in pattern.replace("\\", "/").split("/"):
-        raise GraphMemoryValidationError("Path traversal not allowed in glob patterns.")
-    try:
-        compiled = wcglob.compile(pattern.lstrip("/"), flags=wcglob.BRACE | wcglob.GLOBSTAR | wcglob.FORCEUNIX)
-    except Exception as exc:
-        # wcmatch exposes only private exception types for pattern expansion limits.
-        raise GraphMemoryValidationError(f"Invalid glob pattern: {exc}") from exc
-    return lambda path: bool(compiled.match(path if "/" in pattern else path.rsplit("/", 1)[-1]))
-
-
-def _normalize_pattern(pattern: str) -> tuple[str, bool]:
-    if pattern.startswith("/graph/"):
-        return f"/{pattern.removeprefix('/graph/')}", True
-    if pattern == "/graph":
-        return "/", True
-    return pattern, False
 
 
 def _new_trace_id() -> str:

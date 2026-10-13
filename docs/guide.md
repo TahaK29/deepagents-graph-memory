@@ -8,11 +8,11 @@
 - [Graph context, files, and tool dumps](#using-vgs-and-vfs-together)
 - [Persistence and deployment](#persistent-storage)
 - [Findings, evidence, supersession, and retries](#graph-traces)
-- [Tools](#graph-tools) and [debugging](#inspecting-the-graph)
+- [Tools](#graph-tools) and [human graph review](#download-and-view-the-graph)
 - [Graph-only mode](#optional-graph-only-mode)
 - [Architecture](#architecture) and [design rationale](#design-rationale)
 - [Development](#development) and [evaluations](#workflow-evaluation)
-- [Publishing](#publishing-a-release) and [LangChain listing](#langchain-backend-listing)
+- [Publishing](#publishing-a-release) and [LangChain listing](#langchain-integration-listing)
 
 ## Installation
 
@@ -60,11 +60,13 @@ Neo4j's [context graph article](https://neo4j.com/blog/genai/from-recall-to-reas
 
 ## What It Does
 
-| Structured Traces | Graph Recall | Virtual Graph Views |
-|---|---|---|
-| Situation &rarr; Rationale &rarr; Action &rarr; Outcome | Keyword search + bounded traversal | Read-only `/graph/...` markdown projections |
-| Caller-supplied links and metadata | Anchor-based seed expansion | Schema, index, node, search |
-| Workflow and project context | Approximate output sizing plus depth, node, and edge limits | Inspectable through backend methods |
+| Agent operation | Behavior |
+|---|---|
+| `record_graph_trace` | Stores situations, rationales, actions, outcomes, evidence, and caller-supplied links. |
+| `recall_graph_memory` | Finds relevant context through keyword search and bounded traversal. |
+
+Humans can download the saved database and inspect its graph in Ladybug Explorer.
+The package does not expose graph pages through the agent's filesystem tools.
 
 This is **not** ordinary user memory. Don't use it for facts like "the user likes ice cream." Use it for connected work state like *"this failing test led to this hypothesis, this edit, this result, and this final decision."*
 
@@ -111,8 +113,7 @@ worker_record.invoke({
     "action": "patched the parser", "outcome": "test passed at revision b2",
     "artifacts": ["src/parser.py"], "run_id": "run-1", "agent_id": "parent", "subagent_id": "parser-debugger",
 })  # The binding supplies subject even though this call omits it.
-print(parent.ls("/graph/nodes/Trace/").entries)
-print(parent.read("/graph/search/parser.md").file_data["content"])
+print(parent.recall_graph_memory("parser"))
 ```
 
 Writes through one store are serialized and each trace or document batch commits atomically. Existing node and edge properties survive updates that omit them; the last successful writer wins when writers set the same property. Shared Artifact and Evidence values retain links to every trace, with per-trace IDs on the links. Distinct in-memory stores do not share data. For a persistent graph, create one backend with `path=...` and pass its `.store` to other backends in the same process. Close the shared store only after all agents finish using it.
@@ -127,7 +128,6 @@ pip install deepagents-graph-memory
 
 ```python
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend
 from deepagents_graph_memory import (
     GraphMemoryBackend,
     graph_context_middleware,
@@ -144,15 +144,10 @@ agent = create_deep_agent(
     model=MODEL,
     tools=graph_tools,
     middleware=[graph_context_middleware()],
-    memory=["/graph/index.md", "/graph/schema.md"],
-    backend=CompositeBackend(
-        default=StateBackend(),  # Working files and offloaded tool results.
-        routes={"/graph/": graph_backend},  # Read-only graph inspection.
-    ),
 )
 ```
 
-Configure the selected model provider integration and credentials separately. The [inspection example](#inspecting-the-graph) needs no model or provider key.
+Configure the selected model provider integration and credentials separately. The [human review example](#download-and-view-the-graph) needs no model or provider key.
 
 ## Using VGS and VFS Together
 
@@ -191,9 +186,9 @@ These instructions provide agent guidance; they do not fetch sources or enforce
 atomic writes across VFS and LadybugDB.
 
 You can keep your existing filesystem backend and add the graph tools and middleware.
-Mounting `/graph/` through the native `CompositeBackend` is optional;
-it enables read-only file inspection of graph views. `write_file`, `edit_file`,
-and uploads cannot mutate those views. Keep the physical LadybugDB database outside
+The graph has no filesystem-backend interface. Do not pass it as `backend=` or
+mount it in `CompositeBackend`. Agents record and retrieve graph context through
+the graph tools; humans review a saved database separately. Keep the physical LadybugDB database outside
 the agent's writable file workspace. Ordinary preferences, instructions, and
 notes remain in VFS or `/memories/`.
 
@@ -236,7 +231,7 @@ with TemporaryDirectory() as directory:  # Use a durable directory in your app.
 
     reopened = GraphMemoryBackend.create(path=path, namespace=("project", "demo"))
     try:
-        print(reopened.read(f"/graph/nodes/Trace/{trace_id}.md").file_data["content"])
+        print(reopened.recall_graph_memory("parser", anchors=[trace_id]))
     finally:
         reopened.close()
 ```
@@ -473,7 +468,7 @@ Writes are issued as LadybugDB Cypher `MERGE` statements (no raw Cypher is expos
 
 `recall_graph_memory` searches for seed facts, expands through useful edges, and returns compact markdown with source `/graph/...` paths. Pass anchors (file paths, run IDs, task IDs) to give recall a concrete starting point.
 
-Matching generated trace components and paths are summarized once in recall. Explicit component anchors, custom nodes with different content, and direct `/graph/...` debug views remain available.
+Matching generated trace components and paths are summarized once in recall. Explicit component anchors and custom nodes with different content remain available through recall.
 
 Recall uses LadybugDB keyword search to find seed nodes, then bounded Cypher `MATCH` traversal to expand connected context. The token budget estimates output size; it is not an exact token cap. No vector/embedding search is used.
 
@@ -506,60 +501,49 @@ graph_memory_tools(graph_backend, include_low_level_writes=True)
 
 For production use, prefer domain-specific tools that call `graph_backend.add_graph_node(...)` and `graph_backend.add_graph_edge(...)` with your application's approved labels and relationships.
 
-## Virtual Graph Views
+## Download and view the graph
 
-The backend projects graph state into read-only markdown paths:
-
-| Path | Description |
-|---|---|
-| `/graph/schema.md` | Current graph schema |
-| `/graph/index.md` | Graph memory landing page |
-| `/graph/nodes/{label}/{id}.md` | Single node with properties and relationships |
-| `/graph/search/{query}.md` | Search results with preview text |
-
-These are generated virtual paths, not files on disk or browser links. Node pages include stored properties, provenance when present, and bounded one-hop relationships. Writes go through graph tools, not file operations.
-
-### Inspecting the graph
-
-Use backend methods to check a recorded fact directly, even when recall does not select it. This example runs locally without an LLM or provider key:
+Use persistent storage when you want a graph file to download:
 
 ```python
+from pathlib import Path
+from shutil import copyfile
+
 from deepagents_graph_memory import GraphMemoryBackend
 
-backend = GraphMemoryBackend.create()
-trace_id = backend.record_graph_trace(
-    trace_id="debug-trace-1",
-    situation="scope test failed",
-    rationale="a graph read might use the wrong scope",
-    action="checked the read path",
-    outcome="scope test passed",
-    source="tests/test_scope.py",
-)
+database_path = Path("project.lbdb")
+graph = GraphMemoryBackend.create(path=database_path, namespace=("project", "demo"))
+try:
+    graph.record_graph_trace(
+        situation="parser test failed", rationale="empty field was dropped",
+        action="fixed the parser", outcome="test passed",
+    )
+finally:
+    graph.close()  # Finish all agent work and release the database lock before copying.
 
-print(trace_id)
-print([entry["path"] for entry in backend.ls("/graph/nodes/Trace/").entries])
-node_path = f"/graph/nodes/Trace/{trace_id}.md"
-node = backend.read(node_path)
-if node.error:
-    raise RuntimeError(node.error)
-print(node.file_data["content"])
-print(backend.read("/graph/schema.md").file_data["content"])
-print(backend.read("/graph/search/scope.md").file_data["content"])
+copyfile(database_path, "project-review.lbdb")
 ```
 
-For a missing answer, read the exact known node path first. A "not found" error means that node is absent from the active scope; a returned page lets you inspect its text, provenance, and relationships. Then try `backend.recall_graph_memory("scope test", anchors=[node_path])` to start recall at that node. `ls()` helps discover paths. If a directory exceeds `max_nodes`, listing and recursive file discovery return an error instead of silently omitting files; increase `max_nodes` or use a known node path. Inspection bypasses recall's relevance selection, while node relationships still obey `max_nodes` and `max_edges`. `read()` also accepts line `offset` and `limit`.
+Download or share `project-review.lbdb` using your application's normal file
+transfer. The package does not add a download server or viewer. In-memory graphs
+have no database file to copy; choose a persistent `path` if you need this workflow.
 
-`grep()` searches the rendered Markdown for case-sensitive literal text and returns
-matching lines with their line numbers. Use `/graph/search/{query}.md` or
-`recall_graph_memory()` for ranked keyword search. `glob()` matches relative to its
-`path`: `*.md` matches filenames at any depth, `/*.md` matches only the root, and
-`nodes/**/*.md` matches paths under `nodes/`. Directory paths work with or without
-a trailing slash. Reads preserve newlines and provide pagination metadata when
-the installed Deep Agents version supports it. On current Deep Agents,
-`grep(..., max_count=10)` reports `truncated=True` when more matching lines exist;
-older versions without truncation metadata return an error if the cap is exceeded.
-Async variants follow the installed Deep Agents protocol, including its supported
-arguments.
+[Ladybug Explorer](https://github.com/LadybugDB/explorer) can open existing database
+files and visualize query results. Use a build compatible with the bundled
+LadybugDB 0.20.3 runtime; compatibility with an arbitrary `latest` image is not
+established by this package's tests. Mount the directory containing the copied
+file, set `LBUG_FILE=project-review.lbdb`, and use `MODE=READ_ONLY`. Follow the
+Explorer README for launch instructions. The original agent process can reopen
+its own database after you finish copying.
+
+The download contains the whole database, including every namespace. A namespace
+filters graph-tool context; it does not produce a filtered database download.
+
+Graph references returned by recall, such as `/graph/nodes/Trace/{id}.md`, remain
+valid anchors for subsequent recall. They are identifiers, not downloadable pages
+or paths available to `read_file`. To inspect stored values programmatically,
+use the database adapter from developer code, for example
+`graph.store.get_node("Trace", trace_id, scope_key="project|demo")`.
 
 ## Optional Graph-Only Mode
 
@@ -570,7 +554,7 @@ For applications that deliberately omit filesystem tools, the existing
 - VGS prompt guidance is added
 - The caller passes `graph_memory_tools(graph_backend)` explicitly; the profile does not install them
 
-With file tools hidden, agents use `recall_graph_memory`, which queries the graph store directly. `memory=["/graph/index.md", "/graph/schema.md"]` loads those two views into agent context; it does not enable interactive graph browsing. Developers can still inspect through `GraphMemoryBackend.ls()`, `read()`, `glob()`, and `grep()`.
+With file tools hidden, agents use `recall_graph_memory`, which queries the graph store directly. Graph context does not depend on `memory=` or a filesystem mount. Humans review the saved database separately.
 
 Use the combined setup above when the agent needs files or offloaded tool output.
 The graph-only helper changes the profile for a model key throughout the process;
@@ -593,7 +577,6 @@ graph TB
         Tools["Graph Tools<br/><i>tools.py</i>"]
         Backend["GraphMemoryBackend<br/><i>backend.py</i>"]
         Recall["Recall Engine<br/><i>recall.py</i>"]
-        Renderers["Markdown Renderers<br/><i>renderers.py</i>"]
         Paths["Path Parser<br/><i>paths.py</i>"]
         VGSProfile["Graph Context Guidance<br/><i>vgs.py</i>"]
     end
@@ -606,10 +589,11 @@ graph TB
     Agent -->|"file tools"| VFS["VFS: Files and Tool Dumps"]
     Tools --> Backend
     Backend --> Recall
-    Backend --> Renderers
     Backend --> Paths
     Recall --> LadybugDB
-    Renderers --> LadybugDB
+    Human["Human review"] --> Copy["Closed database copy"]
+    Copy --> Viewer["Ladybug Explorer"]
+    LadybugDB --> Copy
     VGSProfile -.->|"guides graph and file use"| Agent
 
     style VGS fill:#1e293b,stroke:#334155,color:#e2e8f0
@@ -665,11 +649,10 @@ graph LR
 
 | Component | Module | Description |
 |---|---|---|
-| **Backend** | `backend.py` | `BackendProtocol` implementation for Deep Agents |
+| **Graph context** | `backend.py` | Controlled graph recording and recall methods |
 | **Graph Store** | `ladybug_store.py` | LadybugDB adapter with FTS indexing and scoped queries |
 | **Recall Engine** | `recall.py` | Seed search &rarr; expansion &rarr; budget enforcement &rarr; markdown output |
 | **Tools** | `tools.py` | LangChain tools with error boundaries |
-| **Renderers** | `renderers.py` | Graph data &rarr; markdown view projections |
 | **Paths** | `paths.py` | Virtual path parsing and validation |
 | **Graph Guidance** | `vgs.py` | Agent-local combined guidance and optional graph-only profiles |
 | **Errors** | `errors.py` | `GraphMemoryError`, `GraphMemoryConfigurationError`, `GraphMemoryPathError`, `GraphMemoryValidationError` |
@@ -757,8 +740,8 @@ or lower token use for this package. Poor or stale input can still mislead an ag
 
 ### Implementation boundaries
 
-LadybugDB is the graph's source of truth; `/graph/...` files are generated,
-read-only views. The supported store uses the same database engine in memory or
+LadybugDB is the graph's source of truth. Graph tools query the database directly;
+human review uses a closed database copy. The supported store uses the same database engine in memory or
 on disk. There is no fallback Python store, raw agent-facing Cypher tool, vector
 search service, or cloud synchronization layer.
 
@@ -837,78 +820,19 @@ gh workflow run publish.yml --ref main
 Confirm the uploaded version and a clean public-index installation before
 announcing the release or submitting the LangChain listing.
 
-## LangChain backend listing
+## LangChain integration listing
 
-Checked against the live LangChain documentation on 2026-09-20 UTC.
+The package exposes graph tools and middleware alongside the existing Deep Agents
+filesystem. `GraphMemoryBackend` retains its name for graph context, but it no
+longer implements the filesystem `BackendProtocol` or mounts `/graph/` pages.
 
-This package fits the backend page's stated scope: a custom virtual filesystem
-that connects Deep Agents to a database. The proposed entry describes the
-`GraphMemoryBackend` filesystem integration and its read-only Markdown views.
-Graph mutations remain controlled Python methods and tools.
+The previous proposed row on LangChain's filesystem-backend page described that
+removed interface. Do not submit it as a filesystem backend. Confirm an appropriate
+listing category with the LangChain maintainers for this tool-based context-graph
+integration. This guide does not claim acceptance or a specific submission route.
 
-Before submitting, verify the release on
-[PyPI](https://pypi.org/project/deepagents-graph-memory/) and install it in a fresh
-environment. The initial audit found publication was the remaining release gate.
-Maintainers decide acceptance; passing these checks cannot guarantee a merge.
-
-### Requirements and evidence
-
-| Check | Evidence or remaining work |
-| --- | --- |
-| Independent package and public source | `pyproject.toml`, MIT `LICENSE`, and the public `TahaK29/deepagents-graph-memory` repository. No implementation code belongs in the LangChain docs PR. |
-| Backend protocol | Subclasses `BackendProtocol`; implements `ls`, `read`, `grep`, `glob`, `write`, `edit`, upload, and download. Writes, edits, and uploads return read-only errors. Async calls use the inherited protocol wrappers. |
-| File semantics | Regression coverage checks directory paths, literal matching lines, capped search, validated relative glob patterns, newline-preserving reads and pagination, errors, and native synchronous/asynchronous `CompositeBackend` routing. |
-| Bounded inspection | Directory limits return structured errors. Known node paths remain readable. Node views and graph recall retain their existing traversal budgets. |
-| Runtime setup | Published wheels bundle LadybugDB 0.20.3, OpenSSL 3, and FTS. The guide covers supported platforms, persistent storage, and a writable default backend alongside `/graph/`. |
-| Supported Deep Agents versions | `>=0.6.10`, with CI checks for 0.6.10, 0.6.12, 0.7.1, and the latest release. Native result formats and optional prompt APIs are handled across versions. Combined and graph-only agents have offline integration tests. Versions before 0.6.10 are unsupported; 0.5.2 lacks `HarnessProfile`. Future compatibility depends on passing CI. |
-| Published, installable package | Verify the release's platform wheels on PyPI, then confirm installation from the public index in a fresh environment. |
-| Release verification | Publishing requires a successful Tests run for the exact main commit and uploads its tested wheels. That run covers all 12 platform/Python combinations and three older Deep Agents versions. The publisher also validates the complete wheel matrix and package metadata. |
-
-The required filesystem methods come from the
-[custom backend guide](https://docs.langchain.com/oss/python/deepagents/backends#custom-backends).
-The [integration contribution guide](https://docs.langchain.com/oss/python/contributing/integrations-langchain)
-requires independently published packages. Its standard-test requirement says
-"if applicable"; the backend contract is covered directly here rather than by a
-chat-model or vector-store test suite.
-
-### Submission route
-
-The [backend index](https://docs.langchain.com/oss/python/integrations/backends)
-explicitly invites a PR adding a table row. The target source file is
-[`src/oss/integrations/backends/index.mdx`](https://github.com/langchain-ai/docs/blob/main/src/oss/integrations/backends/index.mdx).
-Keep this change to one row linking to the package README.
-
-There is conflicting general guidance: the
-[publishing guide](https://docs.langchain.com/oss/python/contributing/publish-langchain#make-your-integration-discoverable)
-asks for an Integration listing issue and says not to open a manual listing PR
-unless a maintainer requests it. Its current
-[issue form](https://github.com/langchain-ai/docs/blob/main/.github/ISSUE_TEMPLATE/06-integration-submission.yml)
-has no `backends` component. After publication, confirm the backend-specific route
-with a maintainer if that discrepancy remains. Do not select `graphs` or `sandboxes`
-just to fit the form: this entry is a filesystem backend.
-
-The 50,000-monthly-download threshold governs a new hosted integration guide,
-not a claim of eligibility for this existing backend table. This submission
-requests no new guide, navigation entry, or featured status.
-
-### Proposed table row
-
-```markdown
-| [Graph Memory Backend](https://github.com/TahaK29/deepagents-graph-memory#quick-start) | Read-only filesystem backend that exposes LadybugDB project context as Markdown, with controlled graph tools for updates. | `deepagents-graph-memory` | [`TahaK29/deepagents-graph-memory`](https://github.com/TahaK29/deepagents-graph-memory) |
-```
-
-Suggested title: `docs: list Graph Memory Backend for Deep Agents`
-
-Use the upstream PR template when the submission route is confirmed. The overview
-can read:
-
-> Add Graph Memory Backend to the existing backend table. The independently
-> maintained package exposes project entities and workflow traces as read-only
-> Markdown through Deep Agents' filesystem tools. Graph updates use controlled
-> tools, and the README covers installation and links to this guide
-> for supported versions and CompositeBackend setup.
-
-State that Codex assisted with the audit and draft, as required by the docs
-repository's contribution instructions. Attach links to the published package
-and the final green CI run. Do not check the template's `docs dev` box until that
-preview has actually run.
+Before submitting any listing, publish a release containing these changes and
+verify installation from PyPI in a fresh environment. The existing 0.1.8 release
+predates this interface removal. Describe graph recording, bounded recall, and
+human review through a saved LadybugDB database; retain the Neo4j inspiration
+without claiming a Neo4j database adapter.

@@ -125,6 +125,22 @@ def test_recall_stops_at_token_budget():
     assert "Results truncated for token budget" in content
 
 
+def test_omitted_anchor_guides_followup_recall_without_direct_view_reads():
+    backend = GraphMemoryBackend.create()
+    try:
+        backend.add_graph_node("File", "a", {"description": "first finding"})
+        backend.add_graph_node("File", "b", {"description": "second finding"})
+        anchors = ["/graph/nodes/File/a.md", "/graph/nodes/File/b.md"]
+        content = backend.recall_graph_memory("nonmatching", anchors=anchors, max_nodes=1)
+        warning = next(line for line in content.splitlines() if line.startswith("Anchor omitted"))
+        assert "recall_graph_memory" in warning
+        assert "Read it directly" not in warning
+        followup = backend.recall_graph_memory("nonmatching", anchors=[anchors[1]], max_nodes=1)
+        assert "second finding" in followup
+    finally:
+        backend.close()
+
+
 def test_recall_respects_scope():
     store = LadybugGraphStore.memory()
     alice = GraphMemoryBackend(store, namespace=("alice",))

@@ -28,7 +28,8 @@ dependencies, and provenance. Its contents are recorded claims and evidence, not
 
 _COMMON_GRAPH_GUIDANCE = """## Reading Graph Context
 
-- Use `recall_graph_memory` as the primary read path for graph context.
+- Use `recall_graph_memory` to read graph context.
+- Graph source paths returned by recall are anchors for follow-up recall, not files to open.
 - Ask targeted questions. Include anchors such as graph source paths, file paths, run ids,
   task ids, artifact ids, or subagent ids when you have them.
 - Start with the default `auto` mode and modest budgets. Use `local` for one known entity
@@ -82,7 +83,7 @@ _COMMON_GRAPH_GUIDANCE = """## Reading Graph Context
   Rechecking creates a new trace that cites the findings actually used; keep the
   original decision as history.
 - Do not store ordinary user preferences, profile facts, or unrelated notes in the graph.
-- Generated `/graph/...` markdown paths are read-only views over graph data, not storage locations to edit.
+- Graph source references identify recorded context. Use them as recall anchors, not filesystem paths.
 - If low-level graph write tools are exposed, use them only with clear labels, relationship
   names, scope/provenance metadata, and schema discipline. Do not create arbitrary node or
   edge types just because a fact could be represented.

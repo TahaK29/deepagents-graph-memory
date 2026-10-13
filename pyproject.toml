@@ -24,7 +24,6 @@ classifiers = [
 dependencies = [
     "deepagents>=0.6.10",
     "langchain-core>=1.4.0,<2.0.0",
-    "wcmatch>=10.1",
 ]
 
 [project.optional-dependencies]

@@ -44,10 +44,10 @@ def test_scopes_isolate_reads_and_writes():
     alice.add_graph_node("service", "langfuse", {"owner": "alice"})
     bob.add_graph_node("service", "redis", {"owner": "bob"})
 
-    assert alice.read("/nodes/service/langfuse.md").error is None
-    assert alice.read("/nodes/service/redis.md").file_data is None
-    assert bob.read("/nodes/service/redis.md").error is None
-    assert bob.read("/nodes/service/langfuse.md").file_data is None
+    assert store.get_node("service", "langfuse", scope_key="alice") is not None
+    assert store.get_node("service", "redis", scope_key="alice") is None
+    assert store.get_node("service", "redis", scope_key="bob") is not None
+    assert store.get_node("service", "langfuse", scope_key="bob") is None
 
 
 def test_scopes_isolate_shared_public_node_ids():
@@ -58,33 +58,27 @@ def test_scopes_isolate_shared_public_node_ids():
     alice.add_graph_node("service", "shared", {"owner": "alice"})
     bob.add_graph_node("service", "shared", {"owner": "bob"})
 
-    alice_node = alice.read("/nodes/service/shared.md")
-    bob_node = bob.read("/nodes/service/shared.md")
+    alice_node = store.get_node("service", "shared", scope_key="alice")
+    bob_node = store.get_node("service", "shared", scope_key="bob")
 
-    assert alice_node.error is None
-    assert bob_node.error is None
-    assert "alice" in alice_node.file_data["content"]
-    assert "bob" not in alice_node.file_data["content"]
-    assert "bob" in bob_node.file_data["content"]
-    assert "alice" not in bob_node.file_data["content"]
+    assert alice_node.properties["owner"] == "alice"
+    assert bob_node.properties["owner"] == "bob"
 
 
 def test_scoped_label_listing_hides_other_scopes():
     store = LadybugGraphStore.memory()
-    alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
     bob.add_graph_node("secretlabel", "n1")
 
-    labels = alice.ls("/nodes/")
+    labels = store.list_labels(scope_key="alice")
 
-    assert labels.error is None
-    assert labels.entries == []
+    assert labels.items == []
 
 
 def test_scoped_node_listing_filters_before_limit():
     store = LadybugGraphStore.memory()
-    alice = GraphMemoryBackend(store, namespace=("alice",), max_nodes=1)
+    alice = GraphMemoryBackend(store, namespace=("alice",))
     bob = GraphMemoryBackend(store, namespace=("bob",))
 
     bob.add_graph_node("service", "bob-1")
@@ -92,10 +86,10 @@ def test_scoped_node_listing_filters_before_limit():
     bob.add_graph_node("service", "bob-3")
     alice.add_graph_node("service", "alice-1")
 
-    ids = alice.ls("/nodes/service/")
+    ids = store.list_node_ids("service", scope_key="alice", limit=1)
 
-    assert ids.error is None
-    assert ids.entries == [{"path": "/nodes/service/alice-1.md", "is_dir": False}]
+    assert ids.items == ["alice-1"]
+    assert not ids.truncated
 
 
 def test_scoped_search_hides_other_scope_nodes():
@@ -105,11 +99,10 @@ def test_scoped_search_hides_other_scope_nodes():
 
     bob.add_graph_node("service", "bob-secret", {"description": "scope-only-secret"})
 
-    result = alice.read("/search/scope-only-secret.md")
+    result = alice.recall_graph_memory("scope-only-secret")
 
-    assert result.error is None
-    assert "bob-secret" not in result.file_data["content"]
-    assert "No matching graph facts found." in result.file_data["content"]
+    assert "bob-secret" not in result
+    assert "No matching graph memory found." in result
 
 
 def test_scope_metadata_is_written():
@@ -153,10 +146,10 @@ def test_graph_documents_preserve_scope_isolation():
         ]
     )
 
-    assert alice.read("/nodes/Entity/alice-source.md").error is None
-    assert alice.read("/nodes/Entity/bob-source.md").file_data is None
-    assert bob.read("/nodes/Entity/bob-source.md").error is None
-    assert bob.read("/nodes/Entity/alice-source.md").file_data is None
+    assert store.get_node("Entity", "alice-source", scope_key="alice") is not None
+    assert store.get_node("Entity", "bob-source", scope_key="alice") is None
+    assert store.get_node("Entity", "bob-source", scope_key="bob") is not None
+    assert store.get_node("Entity", "alice-source", scope_key="bob") is None
 
     alice_node = store.get_node("Entity", "alice-source", scope_key="alice")
     assert alice_node.properties["scope_key"] == "alice"

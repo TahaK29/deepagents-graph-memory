@@ -616,7 +616,7 @@ def _render_recall(query: str, state: _RecallState, *, token_budget: int) -> str
 
     for ref in state.omitted_anchors or []:
         path = _prefixed(node_path(ref.label, ref.node_id))
-        lines.append(f"Anchor omitted from bounded history: `{path}`. Read it directly for earlier context.")
+        lines.append(f"Anchor omitted from bounded history: `{path}`. Use recall_graph_memory with this anchor separately for earlier context.")
     if state.omitted_anchors:
         lines.append("")
     if state.related_findings:

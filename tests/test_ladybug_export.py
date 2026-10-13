@@ -1,11 +1,33 @@
 """Native Ladybug export/import preserves graph content and invalid files stay intact."""
 
+from shutil import copyfile
+
 import pytest
 
 from deepagents_graph_memory import GraphMemoryBackend
 from deepagents_graph_memory._runtime import fts_load_query
 from deepagents_graph_memory.errors import GraphMemoryConfigurationError
 from deepagents_graph_memory.ladybug_store import ladybug
+
+
+def test_downloaded_database_copy_preserves_graph_for_human_review(tmp_path):
+    source_path = tmp_path / "project.lbdb"
+    source = GraphMemoryBackend.create(path=source_path, namespace="project")
+    trace_id = source.record_graph_trace(
+        situation="parser failed", rationale="test output", action="fixed parser", outcome="passed", evidence=["pytest passed"]
+    )
+    expected = source.store.get_neighbors("Trace", trace_id, scope_key="project")
+    source.close()
+
+    downloaded_path = tmp_path / "downloaded.lbdb"
+    copyfile(source_path, downloaded_path)
+    downloaded = GraphMemoryBackend.create(path=downloaded_path, namespace="project")
+    try:
+        assert downloaded.store.get_neighbors("Trace", trace_id, scope_key="project") == expected
+        assert "pytest passed" in downloaded.recall_graph_memory("parser")
+        assert downloaded.store.search("parser", scope_key="project").items
+    finally:
+        downloaded.close()
 
 
 def test_native_export_import_preserves_graph(tmp_path):

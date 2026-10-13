@@ -1,6 +1,6 @@
 # - Defines the shared shapes for graph items, connections, and search results.
 # - Also checks saved details and helps decide which text matches a question.
-# - Tests: test_validation.py checks bad data; test_renderers.py uses the shared graph shapes.
+# - Tests: test_validation.py checks bad data; test_ladybug_export.py checks saved graph content.
 #        test_scope.py and test_recall.py exercise the helpers through saving and finding context.
 
 """Internal graph integration adapters used by the graph memory backend."""

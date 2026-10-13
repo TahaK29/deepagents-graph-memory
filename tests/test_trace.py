@@ -28,17 +28,12 @@ def test_ephemeral_backend_records_reasoning_trace():
         task_id="task-scope-fix",
     )
 
-    trace = backend.read(f"/nodes/Trace/{trace_id}.md")
-    assert trace.error is None
-    content = trace.file_data["content"]
-    assert "# Trace:" in content
-    assert "Situation" in content
-    assert "Rationale" in content
-    assert "Action" in content
-    assert "Outcome" in content
-
     node = backend.store.get_node("Trace", trace_id)
     assert node is not None
+    assert node.properties["situation"].startswith("scope leak test failed")
+    assert node.properties["rationale"] == "all graph reads must use the active scope_key"
+    assert node.properties["action"].startswith("edited backend.py")
+    assert node.properties["outcome"] == "pytest passed for scope isolation"
     assert node.properties["run_id"] == "run-1"
     assert node.properties["subagent_id"] == "subagent-debugger"
 
@@ -53,14 +48,11 @@ def test_record_graph_trace_omits_unset_optional_metadata():
         outcome="trace was stored",
     )
 
-    trace = backend.read(f"/nodes/Trace/{trace_id}.md")
-
-    assert trace.error is None
-    content = trace.file_data["content"]
-    assert "agent_id" not in content
-    assert "run_id" not in content
-    assert "subagent_id" not in content
-    assert "task_id" not in content
+    properties = backend.store.get_node("Trace", trace_id).properties
+    assert "agent_id" not in properties
+    assert "run_id" not in properties
+    assert "subagent_id" not in properties
+    assert "task_id" not in properties
 
 
 def test_record_graph_trace_accepts_multiline_trace_text():
@@ -73,10 +65,8 @@ def test_record_graph_trace_accepts_multiline_trace_text():
         outcome="Knowledge state changed.\nBIKESHARE_TRIPS.start_station_id NUMBER\nBIKESHARE_STATION_INFO.station_id VARCHAR",
     )
 
-    trace = backend.read(f"/nodes/Trace/{trace_id}.md")
-
-    assert trace.error is None
-    assert "BIKESHARE_TRIPS.start_station_id" in trace.file_data["content"]
+    trace = backend.store.get_node("Trace", trace_id)
+    assert "BIKESHARE_TRIPS.start_station_id" in trace.properties["outcome"]
 
 
 def test_trace_recall_follows_level_three_path():
@@ -110,10 +100,8 @@ def test_trace_search_finds_artifacts():
         artifacts=["src/deepagents_graph_memory/backend.py"],
     )
 
-    result = backend.read("/search/backend.py.md")
-
-    assert result.error is None
-    assert "backend.py" in result.file_data["content"]
+    result = backend.store.search("backend.py")
+    assert any(item.title.startswith("Trace:") and "backend.py" in item.text for item in result.items)
 
 
 def test_trace_recall_can_start_from_anchor():

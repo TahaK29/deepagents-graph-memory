@@ -44,7 +44,7 @@ assert not graph.store.search("saffron", scope_key="another").items
 graph.close()
 reopened = GraphMemoryBackend.create(path=path, namespace="project")
 assert reopened.store.search("saffron", scope_key="project").items
-assert "passed" in reopened.read(f"/graph/nodes/Trace/{trace}.md").file_data["content"]
+assert reopened.store.get_node("Trace", trace, scope_key="project").properties["outcome"] == "passed"
 reopened.close()
 assert not list(pathlib.Path(sys.argv[1]).rglob("*.lbug_extension")), "unexpected extension cache"
 print("Bundled wheel: offline search, namespaces, and persistence passed")
