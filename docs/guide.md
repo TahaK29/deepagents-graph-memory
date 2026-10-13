@@ -826,13 +826,20 @@ The package exposes graph tools and middleware alongside the existing Deep Agent
 filesystem. `GraphMemoryBackend` retains its name for graph context, but it no
 longer implements the filesystem `BackendProtocol` or mounts `/graph/` pages.
 
-The previous proposed row on LangChain's filesystem-backend page described that
-removed interface. Do not submit it as a filesystem backend. Confirm an appropriate
-listing category with the LangChain maintainers for this tool-based context-graph
-integration. This guide does not claim acceptance or a specific submission route.
+The [community middleware listing](https://docs.langchain.com/oss/python/integrations/middleware)
+is an appropriate place to propose this integration: `graph_context_middleware()`
+implements LangChain's `AgentMiddleware` and adds graph context guidance to model
+calls and delegated tasks. The caller also supplies `graph_memory_tools(graph)`;
+the middleware does not install these tools automatically. The graph tools also
+fit the [tools and toolkits category](https://docs.langchain.com/oss/python/integrations/tools).
+Listing acceptance remains up to the LangChain maintainers.
+
+Do not submit the package as a filesystem backend. The previous proposed row on
+that page described an interface removed in 0.2.0. Applications upgrading from
+0.1.x must pass graph tools and middleware separately and use an ordinary Deep
+Agents backend for file operations; graph source anchors are not files.
 
 Before submitting any listing, publish a release containing these changes and
-verify installation from PyPI in a fresh environment. The existing 0.1.8 release
-predates this interface removal. Describe graph recording, bounded recall, and
+verify installation from PyPI in a fresh environment. Describe graph recording, bounded recall, and
 human review through a saved LadybugDB database; retain the Neo4j inspiration
 without claiming a Neo4j database adapter.
